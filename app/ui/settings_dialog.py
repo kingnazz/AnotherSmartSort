@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -29,10 +30,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app import APP_VERSION
 from app.intelligence.ollama_provider import OllamaProvider
 from app.models.enums import ProviderKind, SeparatorPolicy
 from app.profiles import available_profiles, get_profile
 from app.services.ocr_service import TesseractOCRProvider
+from app.services.update_service import RELEASES_PAGE_URL
 from app.storage.settings_store import AppSettings, SettingsStore
 from app.ui.theme import Palette
 from app.utils.filenames import SUPPORTED_VARIABLES, describe_variables, template_preview
@@ -56,6 +59,8 @@ class SettingsDialog(QDialog):
         self._store = store
         self._tokens = palette
         self._api_key_changed = False
+        self._update_worker = None
+        self._release_url = RELEASES_PAGE_URL
 
         self.setWindowTitle("Settings")
         self.setMinimumSize(620, 560)
@@ -143,7 +148,62 @@ class SettingsDialog(QDialog):
         hint.setProperty("role", "caption")
         hint.setWordWrap(True)
         form.addRow("", hint)
+
+        form.addRow("", self._build_update_row())
         return page
+
+    # ------------------------------------------------------------------
+    def _build_update_row(self) -> QWidget:
+        """Check for a newer release, and say where to get it.
+
+        Deliberately a check rather than an install. The MSI already upgrades
+        in place when a newer one is run, so the missing piece was only ever
+        finding out that a newer one exists; downloading and launching an
+        installer is a separate decision with its own consequences.
+        """
+        self.update_button = QPushButton("Check for updates")
+        self.update_button.clicked.connect(self._check_for_updates)
+
+        self.update_status = QLabel(f"Version {APP_VERSION}")
+        self.update_status.setProperty("role", "caption")
+        self.update_status.setWordWrap(True)
+
+        self.update_download_button = QPushButton("Get the update…")
+        self.update_download_button.setProperty("variant", "accent")
+        self.update_download_button.setVisible(False)
+        self.update_download_button.clicked.connect(self._open_release_page)
+
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        row.addWidget(self.update_button)
+        row.addWidget(self.update_download_button)
+        row.addWidget(self.update_status, 1)
+
+        container = QWidget()
+        container.setLayout(row)
+        return container
+
+    def _check_for_updates(self) -> None:
+        if self._update_worker is not None and self._update_worker.isRunning():
+            return
+        self.update_button.setEnabled(False)
+        self.update_download_button.setVisible(False)
+        self.update_status.setText("Checking…")
+
+        from app.workers.update_worker import UpdateCheckWorker
+
+        self._update_worker = UpdateCheckWorker(self)
+        self._update_worker.completed.connect(self._on_update_checked)
+        self._update_worker.start()
+
+    def _on_update_checked(self, result) -> None:
+        self.update_button.setEnabled(True)
+        self.update_status.setText(result.message)
+        self.update_download_button.setVisible(result.update_available)
+        self._release_url = result.release_url
+
+    def _open_release_page(self) -> None:
+        QDesktopServices.openUrl(QUrl(self._release_url))
 
     def _build_classification_tab(self) -> QWidget:
         page = QWidget()
