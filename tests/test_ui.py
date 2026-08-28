@@ -1232,3 +1232,116 @@ class TestSortAndSaveRunFolder:
         base = Path(window.settings.output_directory)
         assert list(run.glob("*.xlsx")), "the index did not land beside its own batch"
         assert not list(base.glob("*.xlsx"))
+
+
+class TestCheckForUpdates:
+    """The Settings row that tells you a newer version exists.
+
+    The check itself is covered in tests/test_updates.py; what matters here is
+    that the dialog reflects each outcome correctly and never offers a download
+    for an update that is not there.
+    """
+
+    def dialog(self, window):
+        from app.ui.settings_dialog import SettingsDialog
+
+        return SettingsDialog(
+            window.settings, window.settings_store, window._tokens, window
+        )
+
+    def test_the_row_exists_and_starts_on_the_current_version(self, qapp, window) -> None:
+        from app import APP_VERSION
+
+        dialog = self.dialog(window)
+        try:
+            assert dialog.update_button.text() == "Check for updates"
+            assert APP_VERSION in dialog.update_status.text()
+            assert not dialog.update_download_button.isVisible(), (
+                "a download was offered before anything had been checked"
+            )
+        finally:
+            dialog.deleteLater()
+
+    def test_a_newer_version_offers_the_download(self, qapp, window) -> None:
+        from app.services.update_service import UpdateCheck
+
+        dialog = self.dialog(window)
+        try:
+            dialog.show()
+            dialog._on_update_checked(
+                UpdateCheck(
+                    current_version="1.0.0",
+                    latest_version="1.4.0",
+                    release_url="https://example.com/r/1.4.0",
+                )
+            )
+            qapp.processEvents()
+
+            assert "1.4.0" in dialog.update_status.text()
+            assert dialog.update_download_button.isVisible()
+            assert dialog._release_url == "https://example.com/r/1.4.0"
+        finally:
+            dialog.hide()
+            dialog.deleteLater()
+
+    def test_being_up_to_date_offers_nothing(self, qapp, window) -> None:
+        from app.services.update_service import UpdateCheck
+
+        dialog = self.dialog(window)
+        try:
+            dialog.show()
+            dialog._on_update_checked(
+                UpdateCheck(current_version="1.0.0", latest_version="1.0.0")
+            )
+            qapp.processEvents()
+
+            assert "up to date" in dialog.update_status.text()
+            assert not dialog.update_download_button.isVisible()
+        finally:
+            dialog.hide()
+            dialog.deleteLater()
+
+    def test_a_failed_check_shows_why_and_offers_nothing(self, qapp, window) -> None:
+        from app.services.update_service import UpdateCheck
+
+        dialog = self.dialog(window)
+        try:
+            dialog.show()
+            dialog._on_update_checked(
+                UpdateCheck(current_version="1.0.0", error="Could not reach the update server.")
+            )
+            qapp.processEvents()
+
+            assert "Could not reach" in dialog.update_status.text()
+            assert not dialog.update_download_button.isVisible(), (
+                "a failed check offered a download anyway"
+            )
+        finally:
+            dialog.hide()
+            dialog.deleteLater()
+
+    def test_the_button_re_enables_after_a_check(self, qapp, window) -> None:
+        """A check that failed must not leave the button dead."""
+        from app.services.update_service import UpdateCheck
+
+        dialog = self.dialog(window)
+        try:
+            dialog.update_button.setEnabled(False)
+            dialog._on_update_checked(UpdateCheck(current_version="1.0.0", error="offline"))
+            assert dialog.update_button.isEnabled()
+        finally:
+            dialog.deleteLater()
+
+    def test_the_download_button_opens_the_release_page(self, qapp, window, monkeypatch) -> None:
+        opened: list[str] = []
+        monkeypatch.setattr(
+            "app.ui.settings_dialog.QDesktopServices.openUrl",
+            staticmethod(lambda url: opened.append(url.toString())),
+        )
+        dialog = self.dialog(window)
+        try:
+            dialog._release_url = "https://example.com/r/2.0.0"
+            dialog._open_release_page()
+            assert opened == ["https://example.com/r/2.0.0"]
+        finally:
+            dialog.deleteLater()
