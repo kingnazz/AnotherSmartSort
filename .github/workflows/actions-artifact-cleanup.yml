@@ -1,0 +1,103 @@
+name: Actions artifact cleanup
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/actions-artifact-cleanup.yml"
+  workflow_run:
+    workflows: ["Windows production build"]
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: actions-artifact-cleanup
+  cancel-in-progress: true
+
+jobs:
+  cleanup:
+    name: Remove old build artifacts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Keep only the newest production bundle
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+
+            const artifacts = await github.paginate(
+              github.rest.actions.listArtifactsForRepo,
+              { owner, repo, per_page: 100 }
+            );
+
+            const newestFirst = (items) =>
+              [...items].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+            const production = newestFirst(
+              artifacts.filter(
+                (artifact) =>
+                  !artifact.expired &&
+                  artifact.name.startsWith("SmartPDFSorter-") &&
+                  artifact.name.endsWith("-windows")
+              )
+            );
+
+            const installerLogs = newestFirst(
+              artifacts.filter(
+                (artifact) =>
+                  !artifact.expired && artifact.name.startsWith("msi-logs-")
+              )
+            );
+
+            let deleted = 0;
+            let reclaimedBytes = 0;
+
+            // Keep exactly one Windows deliverable bundle: the newest one.
+            for (const artifact of production.slice(1)) {
+              await github.rest.actions.deleteArtifact({
+                owner,
+                repo,
+                artifact_id: artifact.id,
+              });
+              deleted += 1;
+              reclaimedBytes += artifact.size_in_bytes || 0;
+              core.info(`Deleted old production artifact: ${artifact.name} (${artifact.id})`);
+            }
+
+            // Installer failure logs are useful briefly, but should not accumulate.
+            const logCutoff = Date.now() - 3 * 24 * 60 * 60 * 1000;
+            for (const artifact of installerLogs) {
+              if (new Date(artifact.created_at).getTime() >= logCutoff) continue;
+              await github.rest.actions.deleteArtifact({
+                owner,
+                repo,
+                artifact_id: artifact.id,
+              });
+              deleted += 1;
+              reclaimedBytes += artifact.size_in_bytes || 0;
+              core.info(`Deleted old installer log artifact: ${artifact.name} (${artifact.id})`);
+            }
+
+            const kept = production[0];
+            const reclaimedMb = (reclaimedBytes / 1024 / 1024).toFixed(1);
+
+            core.info(
+              kept
+                ? `Kept newest production artifact: ${kept.name} (${kept.id})`
+                : "No production artifact was present to keep."
+            );
+            core.info(`Deleted ${deleted} artifact(s), approximately ${reclaimedMb} MB.`);
+
+            await core.summary
+              .addHeading("Actions artifact cleanup")
+              .addRaw(`Deleted **${deleted}** old artifact(s), approximately **${reclaimedMb} MB**.\n\n`)
+              .addRaw(
+                kept
+                  ? `Kept newest production bundle: **${kept.name}**.\n`
+                  : "No production bundle was present.\n"
+              )
+              .write();

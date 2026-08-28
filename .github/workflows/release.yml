@@ -1,0 +1,229 @@
+name: Release
+
+# Builds signed-ready release artifacts when a version tag is pushed:
+#
+#     git tag v1.0.0 && git push origin v1.0.0
+#
+# The GitHub Release is created as a DRAFT. Nothing is published to the world
+# until a human reviews the artifacts and presses publish — releasing software
+# to client machines should be a deliberate act, not a side effect of a tag.
+#
+# It can also be run manually from the Actions tab against any branch.
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+  workflow_dispatch:
+    inputs:
+      draft:
+        description: "Create the GitHub Release as a draft"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write   # required to create the release
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+  DOTNET_NOLOGO: 1
+  PYTHONUTF8: 1
+
+jobs:
+  build:
+    name: Build the release artifacts
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Read the application version
+        id: version
+        shell: pwsh
+        run: |
+          $version = (python -m app.version).Trim()
+          "version=$version" >> $env:GITHUB_OUTPUT
+          Write-Host "Application version: $version"
+
+      # A tag must match the version in app/version.py, or the release would
+      # ship artifacts whose filenames disagree with the tag they came from.
+      - name: Verify the tag matches app/version.py
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}" -replace '^v', ''
+          $version = "${{ steps.version.outputs.version }}"
+          if ($tag -ne $version) {
+            throw "Tag '${{ github.ref_name }}' does not match app/version.py ($version). Update app/version.py, or retag."
+          }
+          Write-Host "Tag and application version agree: $version"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Install the WiX toolset
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          "$env:USERPROFILE\.dotnet\tools" >> $env:GITHUB_PATH
+
+      - name: Add the WiX UI extension
+        shell: pwsh
+        run: wix extension add --global WixToolset.UI.wixext/5.0.2
+
+      - name: Cache the OCR runtime download
+        uses: actions/cache@v4
+        with:
+          path: build/ocr-cache
+          key: ocr-runtime-${{ hashFiles('scripts/fetch_ocr_runtime.py') }}
+
+      - name: Run the test suite
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q
+
+      # The build script is the single definition of a production build, so a
+      # release cannot drift away from what a developer builds locally.
+      #
+      # To enable code signing, add the signing secrets to the repository and
+      # uncomment the env block plus the -Sign switch:
+      #
+      #   env:
+      #     SPS_SIGN_CERT_PATH: ${{ runner.temp }}\codesign.pfx
+      #     SPS_SIGN_CERT_PASSWORD: ${{ secrets.SPS_SIGN_CERT_PASSWORD }}
+      #     SPS_SIGN_TIMESTAMP_URL: http://timestamp.digicert.com
+      #
+      # ...with a preceding step that materialises the certificate from a
+      # secret, and a final step that deletes it. Never commit a certificate.
+      - name: Build the production artifacts
+        shell: pwsh
+        run: .\scripts\build_windows.ps1 -Clean -SkipTests
+
+      - name: Verify the artifacts
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $msi = "artifacts\SmartPDFSorter-Setup-$version.msi"
+          $portable = "artifacts\SmartPDFSorter-Portable-$version.exe"
+          foreach ($file in @($msi, $portable, "artifacts\SHA256SUMS.txt")) {
+            if (-not (Test-Path $file)) { throw "Missing release artifact: $file" }
+            Write-Host "OK  $file  ($([Math]::Round((Get-Item $file).Length / 1MB, 1)) MB)"
+          }
+          Get-Content "artifacts\SHA256SUMS.txt"
+
+      - name: Install and verify the MSI before releasing it
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $msi = (Resolve-Path "artifacts\SmartPDFSorter-Setup-$version.msi").Path
+
+          $p = Start-Process msiexec.exe -ArgumentList @("/i", "`"$msi`"", "/qn", "/norestart") -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "The release MSI failed to install (exit $($p.ExitCode))" }
+
+          # GUI-subsystem executable: must be launched through the waiting helper.
+          $exe = "$env:ProgramFiles\Smart PDF Sorter\SmartPDFSorter.exe"
+          .\scripts\Invoke-AppCli.ps1 -Exe $exe -AppArgs '--smoke-test'
+          if ($LASTEXITCODE -ne 0) { throw "The release build failed its smoke test" }
+
+          $ocr = (.\scripts\Invoke-AppCli.ps1 -Exe $exe -AppArgs '--ocr-info' -PassOutput | Out-String)
+          if ($ocr -notmatch "bundled") { throw "The release build has no working bundled OCR" }
+          Write-Host $ocr
+
+          $p = Start-Process msiexec.exe -ArgumentList @("/x", "`"$msi`"", "/qn", "/norestart") -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "The release MSI failed to uninstall (exit $($p.ExitCode))" }
+          Write-Host "Release artifact verified end to end."
+
+      - name: Upload the artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ steps.version.outputs.version }}
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 90
+
+  release:
+    name: Create the draft GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Download the built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-${{ needs.build.outputs.version }}
+          path: artifacts
+
+      - name: Write the release notes
+        id: notes
+        shell: bash
+        run: |
+          version="${{ needs.build.outputs.version }}"
+          {
+            echo "## Smart PDF Sorter $version"
+            echo
+            echo "### Install"
+            echo
+            echo '```powershell'
+            echo "msiexec /i SmartPDFSorter-Setup-$version.msi /qn /norestart"
+            echo '```'
+            echo
+            echo "Or double-click the MSI. Windows 10/11, 64-bit. Python is not required."
+            echo
+            echo "### Uninstall"
+            echo
+            echo '```powershell'
+            echo "msiexec /x SmartPDFSorter-Setup-$version.msi /qn /norestart"
+            echo '```'
+            echo
+            echo "### Files"
+            echo
+            echo "| File | Purpose |"
+            echo "| --- | --- |"
+            echo "| \`SmartPDFSorter-Setup-$version.msi\` | Installer (recommended). Includes the OCR engine for scanned PDFs. |"
+            echo "| \`SmartPDFSorter-Portable-$version.exe\` | Portable single file, no installation. Uses OCR only if the machine already has it. |"
+            echo "| \`SHA256SUMS.txt\` | Checksums for both files. |"
+            echo
+            echo "### Verify a download"
+            echo
+            echo '```powershell'
+            echo "Get-FileHash SmartPDFSorter-Setup-$version.msi -Algorithm SHA256"
+            echo '```'
+            echo
+            echo "These artifacts are not code-signed, so Windows SmartScreen will warn on first run."
+            echo
+            echo "---"
+            echo
+            echo "Verified on a clean Windows runner: silent install, application smoke test, bundled OCR, and silent uninstall."
+          } > release-notes.md
+          cat release-notes.md
+
+      - name: Create the draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: Smart PDF Sorter ${{ needs.build.outputs.version }}
+          body_path: release-notes.md
+          files: |
+            artifacts/SmartPDFSorter-Setup-*.msi
+            artifacts/SmartPDFSorter-Portable-*.exe
+            artifacts/SHA256SUMS.txt
+          fail_on_unmatched_files: true

@@ -1,0 +1,35 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+.venv/
+venv/
+env/
+
+build/
+dist/
+*.spec.bak
+
+# Generated sample fixtures and local scratch output
+samples/
+Output/
+out/
+*.log
+
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Production build output
+artifacts/
+ocr/
+packaging/__pycache__/
+
+# Real client PDFs for QA must never be committed
+qa/input/
+qa/output/
+qa/*.local.json
