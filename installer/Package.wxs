@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Smart PDF Sorter - Windows Installer package.
+
+  Build (from the repository root, on Windows):
+
+      wix build installer\Package.wxs `
+          -arch x64 `
+          -d Version=1.0.0 `
+          -d HarvestPath=dist\SmartPDFSorter `
+          -d RepoRoot=. `
+          -ext WixToolset.UI.wixext `
+          -o artifacts\SmartPDFSorter-Setup-1.0.0.msi
+
+  scripts/build_windows.ps1 does this for you and passes the version from
+  app/version.py, which is the single source of truth.
+
+  Design notes:
+    * perMachine so the application is available to every user of the PC and
+      can be deployed by RMM/Intune/GPO under SYSTEM.
+    * The UpgradeCode below is FIXED FOREVER. Windows Installer uses it to
+      recognise that a new MSI replaces an older Smart PDF Sorter rather than
+      installing a second copy. Never regenerate it.
+    * ProductCode is auto-generated per build (Product/@Id="*" behaviour is the
+      WiX v4+ default), which is what MajorUpgrade requires.
+    * No user data is written here. Settings and history live in the user's
+      LocalAppData and therefore survive upgrade and uninstall untouched.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <?define ProductName = "Smart PDF Sorter" ?>
+  <?define Manufacturer = "Smart PDF Sorter" ?>
+  <?define ExeName = "SmartPDFSorter.exe" ?>
+  <!-- Stable for the life of the product. Changing it breaks upgrades. -->
+  <?define UpgradeCodeGuid = "7B3F2E64-9A21-4C0D-9E2B-5F1A6D8C4E30" ?>
+
+  <Package
+      Name="$(ProductName)"
+      Manufacturer="$(Manufacturer)"
+      Version="$(Version)"
+      UpgradeCode="$(UpgradeCodeGuid)"
+      Scope="perMachine"
+      Compressed="yes"
+      InstallerVersion="500"
+      Language="1033">
+
+    <SummaryInformation
+        Description="$(ProductName) $(Version) installer"
+        Manufacturer="$(Manufacturer)" />
+
+    <!--
+      Replace an older version in place. Scheduling afterInstallValidate means
+      the old files are removed before the new ones are laid down, which avoids
+      leaving orphaned files from a previous release.
+      AllowSameVersionUpgrades lets a rebuilt same-version MSI reinstall cleanly
+      instead of ending up with two entries in Programs and Features.
+    -->
+    <MajorUpgrade
+        AllowSameVersionUpgrades="yes"
+        DowngradeErrorMessage="A newer version of [ProductName] is already installed. Uninstall it first if you really want to install this older version."
+        Schedule="afterInstallValidate" />
+
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- 64-bit Windows 10 (build 10240) or newer. -->
+    <Launch
+        Condition="Installed OR (VersionNT &gt;= 603)"
+        Message="[ProductName] requires 64-bit Windows 10 or Windows 11." />
+    <Launch
+        Condition="Installed OR VersionNT64"
+        Message="[ProductName] requires 64-bit Windows. This computer is running a 32-bit version." />
+
+    <!-- Programs and Features metadata. -->
+    <Icon Id="AppIcon.exe" SourceFile="$(RepoRoot)\assets\icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon.exe" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/kingnazz/AnotherSort" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/kingnazz/AnotherSort" />
+    <!--
+      ARPNOMODIFY is deliberately NOT set here: WixUI_InstallDir already defines
+      it (to 1, which is what a single-feature package wants), and declaring it
+      twice is a duplicate-symbol error. Repair stays enabled by default.
+    -->
+
+    <!--
+      Desktop shortcut is opt-in so unattended deployments do not clutter every
+      user's desktop. Enable with:  msiexec /i ... INSTALLDESKTOPSHORTCUT=1
+    -->
+    <Property Id="INSTALLDESKTOPSHORTCUT" Value="0" Secure="yes" />
+
+    <!-- Install location, overridable with INSTALLFOLDER=... -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="$(ProductName)" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="$(ProductName)" />
+    </StandardDirectory>
+    <StandardDirectory Id="DesktopFolder" />
+
+    <Feature Id="Main" Title="$(ProductName)" Level="1" AllowAbsent="no">
+      <ComponentGroupRef Id="ApplicationFiles" />
+      <ComponentGroupRef Id="Shortcuts" />
+    </Feature>
+
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(RepoRoot)\installer\License.rtf" />
+
+  </Package>
+
+  <Fragment>
+    <!--
+      Harvest the whole PyInstaller onedir output, including _internal\ and the
+      bundled ocr\ runtime. WiX v4+ generates a component per file with stable
+      generated GUIDs, so repair and upgrade behave correctly without a
+      hand-maintained component list.
+    -->
+    <ComponentGroup Id="ApplicationFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(HarvestPath)\**" />
+    </ComponentGroup>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="Shortcuts">
+      <Component Id="StartMenuShortcut" Directory="ApplicationProgramsFolder" Guid="C4E1A7D2-6B05-4F39-8A77-2D9E0B3C15A8">
+        <Shortcut
+            Id="StartMenuAppShortcut"
+            Name="$(ProductName)"
+            Description="Group combined PDFs into separate documents"
+            Target="[INSTALLFOLDER]$(ExeName)"
+            WorkingDirectory="INSTALLFOLDER"
+            Icon="AppIcon.exe" />
+        <RemoveFolder Id="RemoveStartMenuFolder" Directory="ApplicationProgramsFolder" On="uninstall" />
+        <!--
+          A per-machine package still needs one registry value per shortcut
+          component to give Windows Installer a KeyPath it can validate.
+        -->
+        <RegistryValue
+            Root="HKLM"
+            Key="Software\$(Manufacturer)\$(ProductName)"
+            Name="StartMenuShortcut"
+            Type="integer"
+            Value="1"
+            KeyPath="yes" />
+      </Component>
+
+      <!--
+        WiX v4 replaced the <Condition> child element with a Condition
+        attribute; the old child form does not compile.
+      -->
+      <Component Id="DesktopShortcut" Directory="DesktopFolder"
+                 Guid="9F82C6B1-3D47-4A58-B0E9-7C61F4A2D8B3"
+                 Condition='INSTALLDESKTOPSHORTCUT = "1"'>
+        <Shortcut
+            Id="DesktopAppShortcut"
+            Name="$(ProductName)"
+            Description="Group combined PDFs into separate documents"
+            Target="[INSTALLFOLDER]$(ExeName)"
+            WorkingDirectory="INSTALLFOLDER"
+            Icon="AppIcon.exe" />
+        <RegistryValue
+            Root="HKLM"
+            Key="Software\$(Manufacturer)\$(ProductName)"
+            Name="DesktopShortcut"
+            Type="integer"
+            Value="1"
+            KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+
+</Wix>

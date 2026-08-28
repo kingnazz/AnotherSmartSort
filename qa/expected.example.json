@@ -1,0 +1,480 @@
+{
+  "_comment": "Example ground truth built from the synthetic samples in scripts/sample_data.py and scripts/mixed_batch.py. Replace with labels for real client PDFs. Never commit confidential documents: qa/input/ is git-ignored. Applicants_2026.pdf shows the candidate-centric shape, which is what a mixed multi-applicant batch should be labelled with; the other entries show the older flat form, which still loads.",
+  "documents": {
+    "SampleA_BenjaminPerezApplication.pdf": {
+      "documents": [
+        {
+          "type": "Application Report",
+          "start_page": 1,
+          "end_page": 4,
+          "candidate": "Benjamin Perez"
+        },
+        {
+          "type": "Resume",
+          "start_page": 5,
+          "end_page": 7,
+          "candidate": "Benjamin Perez"
+        },
+        {
+          "type": "Cover Letter",
+          "start_page": 8,
+          "end_page": 8,
+          "candidate": "Benjamin Perez"
+        },
+        {
+          "type": "References",
+          "start_page": 9,
+          "end_page": 10,
+          "candidate": "Benjamin Perez"
+        }
+      ]
+    },
+    "SampleB_Resume_ThreePages.pdf": {
+      "documents": [
+        {
+          "type": "Resume",
+          "start_page": 1,
+          "end_page": 3,
+          "candidate": "Benjamin Perez"
+        }
+      ]
+    },
+    "SampleC_CoverLetter_TwoPages.pdf": {
+      "documents": [
+        {
+          "type": "Cover Letter",
+          "start_page": 1,
+          "end_page": 2,
+          "candidate": "Benjamin Perez"
+        }
+      ]
+    },
+    "SampleE_AmbiguousPage.pdf": {
+      "documents": [
+        {
+          "type": "Resume",
+          "start_page": 1,
+          "end_page": 3,
+          "candidate": "Benjamin Perez"
+        }
+      ]
+    },
+    "SampleF_SeparatorPages.pdf": {
+      "documents": [
+        {
+          "type": "Resume",
+          "start_page": 1,
+          "end_page": 3,
+          "candidate": "Benjamin Perez"
+        },
+        {
+          "type": "Cover Letter",
+          "start_page": 4,
+          "end_page": 5,
+          "candidate": "Benjamin Perez"
+        }
+      ]
+    },
+    "SampleG_TwoCandidates.pdf": {
+      "documents": [
+        {
+          "type": "Resume",
+          "start_page": 1,
+          "end_page": 2,
+          "candidate": "Benjamin Perez"
+        },
+        {
+          "type": "Resume",
+          "start_page": 3,
+          "end_page": 4,
+          "candidate": "Jane Smith"
+        }
+      ]
+    },
+    "SampleH_TranscriptAndReferences.pdf": {
+      "documents": [
+        {
+          "type": "Transcript",
+          "start_page": 1,
+          "end_page": 2,
+          "candidate": "Benjamin Perez"
+        },
+        {
+          "type": "References",
+          "start_page": 3,
+          "end_page": 4,
+          "candidate": "Benjamin Perez"
+        }
+      ]
+    },
+    "Applicants_2026.pdf": {
+      "candidates": [
+        {
+          "name": "Jane Smith",
+          "documents": [
+            {
+              "type": "Application Report",
+              "pages": [
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "type": "Resume",
+              "pages": [
+                5,
+                6
+              ]
+            },
+            {
+              "type": "Cover Letter",
+              "pages": [
+                7
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Robert Jones",
+          "documents": [
+            {
+              "type": "Application Report",
+              "pages": [
+                8,
+                9,
+                10,
+                11
+              ]
+            },
+            {
+              "type": "Resume",
+              "pages": [
+                12
+              ]
+            },
+            {
+              "type": "Cover Letter",
+              "pages": [
+                13
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Sarah Lee",
+          "documents": [
+            {
+              "type": "Application Report",
+              "pages": [
+                14,
+                15,
+                16
+              ]
+            },
+            {
+              "type": "Resume",
+              "pages": [
+                17
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Mark Davis",
+          "documents": [
+            {
+              "type": "Resume",
+              "pages": [
+                18,
+                19,
+                20
+              ]
+            },
+            {
+              "type": "Cover Letter",
+              "pages": [
+                21
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Priya Raman",
+          "documents": [
+            {
+              "type": "Application Report",
+              "pages": [
+                22,
+                23,
+                24,
+                25
+              ]
+            },
+            {
+              "type": "Resume",
+              "pages": [
+                26
+              ]
+            },
+            {
+              "type": "Cover Letter",
+              "pages": [
+                27
+              ]
+            },
+            {
+              "type": "References",
+              "pages": [
+                28,
+                29
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Daniel O'Connor",
+          "documents": [
+            {
+              "type": "Application Report",
+              "pages": [
+                30,
+                31,
+                32
+              ]
+            },
+            {
+              "type": "Resume",
+              "pages": [
+                33,
+                34
+              ]
+            },
+            {
+              "type": "Transcript",
+              "pages": [
+                35,
+                36
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Amara Okafor",
+          "documents": [
+            {
+              "type": "Application Report",
+              "pages": [
+                37,
+                38,
+                39
+              ]
+            },
+            {
+              "type": "Resume",
+              "pages": [
+                40
+              ]
+            },
+            {
+              "type": "Cover Letter",
+              "pages": [
+                41
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Thomas Nguyen",
+          "documents": [
+            {
+              "type": "Application Report",
+              "pages": [
+                43,
+                44,
+                45
+              ]
+            },
+            {
+              "type": "Resume",
+              "pages": [
+                46,
+                47
+              ]
+            },
+            {
+              "type": "Cover Letter",
+              "pages": [
+                48
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Elena Vasquez",
+          "documents": [
+            {
+              "type": "Resume",
+              "pages": [
+                49
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Michael Brennan",
+          "documents": [
+            {
+              "type": "Application Report",
+              "pages": [
+                50,
+                51,
+                52
+              ]
+            },
+            {
+              "type": "Resume",
+              "pages": [
+                53,
+                54
+              ]
+            },
+            {
+              "type": "Cover Letter",
+              "pages": [
+                55
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Aisha Karim",
+          "documents": [
+            {
+              "type": "Application Report",
+              "pages": [
+                56,
+                57,
+                58,
+                59
+              ]
+            },
+            {
+              "type": "Resume",
+              "pages": [
+                60,
+                61
+              ]
+            },
+            {
+              "type": "Cover Letter",
+              "pages": [
+                62
+              ]
+            },
+            {
+              "type": "References",
+              "pages": [
+                63,
+                64
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Jonathan Pike",
+          "documents": [
+            {
+              "type": "Application Report",
+              "pages": [
+                65,
+                66,
+                67
+              ]
+            },
+            {
+              "type": "Resume",
+              "pages": [
+                68,
+                69,
+                70
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Rebecca Stone",
+          "documents": [
+            {
+              "type": "Application Report",
+              "pages": [
+                71,
+                72,
+                73,
+                74
+              ]
+            },
+            {
+              "type": "Resume",
+              "pages": [
+                75
+              ]
+            },
+            {
+              "type": "Cover Letter",
+              "pages": [
+                76
+              ]
+            },
+            {
+              "type": "Transcript",
+              "pages": [
+                77,
+                78
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Victor Alvarez",
+          "documents": [
+            {
+              "type": "Resume",
+              "pages": [
+                79,
+                80
+              ]
+            },
+            {
+              "type": "Cover Letter",
+              "pages": [
+                81
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Hannah Whitfield",
+          "documents": [
+            {
+              "type": "Application Report",
+              "pages": [
+                82,
+                83,
+                84
+              ]
+            },
+            {
+              "type": "Resume",
+              "pages": [
+                85,
+                86
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
