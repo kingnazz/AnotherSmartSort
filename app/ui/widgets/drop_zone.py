@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app import APP_NAME
 from app.services.file_discovery import is_pdf
 from app.ui.theme import Palette
 
@@ -50,7 +51,7 @@ class DropZone(QFrame):
         self._headline.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self._subtitle = QLabel(
-            "Smart PDF Sorter will identify, group, and organize the documents automatically."
+            f"{APP_NAME} will identify, group, and organize the documents automatically."
         )
         self._subtitle.setProperty("role", "body")
         self._subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)

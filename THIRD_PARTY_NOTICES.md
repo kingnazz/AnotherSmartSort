@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-Smart PDF Sorter is built on open-source software. This file lists every
+AS Resume Sorter is built on open-source software. This file lists every
 third-party component distributed with the application, its licence, and where
 to obtain its source.
 
@@ -9,7 +9,7 @@ so that scanned documents can be read on a clean machine without the user
 installing anything. That redistribution is covered by the Apache License 2.0
 below.
 
-Last reviewed: 2026-08-13 for Smart PDF Sorter 1.0.0.
+Last reviewed: 2026-08-13 for AS Resume Sorter 1.0.0.
 
 ---
 
@@ -111,7 +111,7 @@ application's `ocr` folder.
 > **Important licensing note.** PyMuPDF/MuPDF is AGPL v3. Distributing Smart PDF
 > Sorter to third parties under the AGPL requires making the complete
 > corresponding source of this application available to its recipients on the
-> same terms. If Smart PDF Sorter is to be distributed as proprietary software,
+> same terms. If AS Resume Sorter is to be distributed as proprietary software,
 > obtain a commercial MuPDF licence from Artifex, or replace PyMuPDF with a
 > permissively licensed PDF engine. This is a business decision that must be
 > settled before wide client distribution — see IMPLEMENTATION_STATUS.md.
@@ -167,4 +167,4 @@ in the application's `_internal` folder and can be substituted.
 
 Source for the components above is available from the home pages listed. For
 components whose licences require a written offer of source, contact the
-publisher of Smart PDF Sorter.
+publisher of AS Resume Sorter.

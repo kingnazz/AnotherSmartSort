@@ -2,8 +2,13 @@
 
 Reproduces the *structure* of the real 104-page client bulk compile -- its
 cover page, roster, per-applicant application forms and compiled attachments,
-and the exact page counts observed -- using entirely invented applicant names
-and content. No real applicant data is ever committed to this repository.
+and the exact page counts observed.
+
+Everything filled into that structure is invented and must stay invented: the
+applicant names, the contact details, the requisition number, and the job title
+being recruited for. Only the *shape* is copied from the client's file. A real
+value that reaches this module reaches the public repository, and the fact that
+it sits in a file named "fixtures" is exactly why nobody would look for it.
 
 The page arithmetic is the point of this module: the real file's expected
 ranges (application 2-6, resume 7-8, application 9-12, ...) are reproduced
@@ -159,8 +164,8 @@ def application_pages(name: str, total: int) -> list[SamplePage]:
         "Phone                    (555) 010-2200",
         "Address                  118 Rossmore Avenue, Long Beach, CA 90802",
         "",
-        "Position applied for     Facilities Coordinator",
-        "Requisition              482910",
+        "Position applied for     Operations Coordinator",
+        "Requisition              900218",
         "Date submitted           4 March 2026",
     ]
     pages = [first]
@@ -254,7 +259,7 @@ def resume_attachment_pages(
                     "",
                     *paragraph(
                         "Thank you for considering my application for the "
-                        "Facilities Coordinator position. My experience across "
+                        "Operations Coordinator position. My experience across "
                         "three campuses is summarised above."
                     ),
                     "",
@@ -400,8 +405,8 @@ def cover_letter_attachment_pages(
         "Dear Hiring Committee,",
         "",
         *paragraph(
-            "I am writing to apply for the Facilities Coordinator position "
-            "advertised under requisition 482910. Nine years of multi-site "
+            "I am writing to apply for the Operations Coordinator position "
+            "advertised under requisition 900218. Nine years of multi-site "
             "maintenance work have given me the vendor management and capital "
             "planning experience the role calls for."
         ),
@@ -489,8 +494,8 @@ def combined_attachment_pages(name: str) -> list[SamplePage]:
                 "Dear Hiring Committee,",
                 "",
                 *paragraph(
-                    "I am writing to apply for the Facilities Coordinator "
-                    "position advertised under requisition 482910, and have "
+                    "I am writing to apply for the Operations Coordinator "
+                    "position advertised under requisition 900218, and have "
                     "attached my resume below."
                 ),
                 "",

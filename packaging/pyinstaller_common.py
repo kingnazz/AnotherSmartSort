@@ -15,9 +15,17 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+#: The build artifact name -- EXE filename, onedir folder, MSI/ZIP filenames.
+#: Deliberately left as it was through the rename to "AS Resume Sorter": it is
+#: not shown anywhere a user reads a product name, the two .spec files are named
+#: after it and invoked by name from CI, and the release workflow's artifact
+#: cleanup matches on this prefix. See DISPLAY_NAME for the name people see.
 APP_NAME = "SmartPDFSorter"
-DISPLAY_NAME = "Smart PDF Sorter"
-PUBLISHER = "Smart PDF Sorter"
+#: The product name people see: Explorer's Details tab, the EXE's ProductName
+#: resource, and the description that follows the file around.
+DISPLAY_NAME = "AS Resume Sorter"
+#: The EXE's CompanyName resource. Mirrors the product name, as it did before.
+PUBLISHER = "AS Resume Sorter"
 
 
 def repo_root(spec_path: str) -> Path:
