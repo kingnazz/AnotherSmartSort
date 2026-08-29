@@ -1,6 +1,6 @@
-# Smart PDF Sorter
+# AS Resume Sorter
 
-Smart PDF Sorter takes PDFs that contain several documents stuck together,
+AS Resume Sorter takes PDFs that contain several documents stuck together,
 works out where each document starts and ends, groups the pages, names the
 files sensibly, and saves them out — so you only have to check the handful it
 was unsure about.
@@ -11,7 +11,7 @@ letters, references, transcripts, writing samples and portfolios.
 The everyday job is applicant tracking system (ATS) exports: one PDF per
 applicant (or one large export holding many), each an application report
 followed by its attachments behind separator pages that just say "Resume" or
-"Cover Letters". Smart PDF Sorter recognises that structure and extracts it
+"Cover Letters". AS Resume Sorter recognises that structure and extracts it
 exactly — see [How ATS exports are handled](#how-ats-exports-are-handled).
 
 ---
@@ -61,7 +61,7 @@ person's documents inside another person's folder, where nobody would look.
 
 ## How ATS exports are handled
 
-Recruiting systems export in several different shapes, and Smart PDF Sorter
+Recruiting systems export in several different shapes, and AS Resume Sorter
 recognises each one outright rather than scoring it page by page. Three are
 built in:
 
@@ -180,7 +180,7 @@ msiexec /i SmartPDFSorter-Setup-1.0.0.msi /qn /norestart INSTALLDESKTOPSHORTCUT=
 Install somewhere else:
 
 ```powershell
-msiexec /i SmartPDFSorter-Setup-1.0.0.msi /qn /norestart INSTALLFOLDER="D:\Apps\Smart PDF Sorter"
+msiexec /i SmartPDFSorter-Setup-1.0.0.msi /qn /norestart INSTALLFOLDER="D:\Apps\AS Resume Sorter"
 ```
 
 Uninstall silently:
@@ -194,7 +194,7 @@ failure. Add `/l*v install.log` to capture a full log.
 
 ### Scripting the command line
 
-Smart PDF Sorter can report on itself, which is useful for verifying a
+AS Resume Sorter can report on itself, which is useful for verifying a
 deployment:
 
 ```
@@ -440,7 +440,7 @@ goes into its own folder, named for the moment it started, and inside that you
 get one folder per document type:
 
 ```
-Smart PDF Sorter Output/
+AS Resume Sorter/
     2026-08-26_10-32-AM/
         Application Reports/
             Marcus Delgado.pdf
@@ -481,7 +481,7 @@ as "saved" either.
 useful if you want every one of an applicant's documents sitting together:
 
 ```
-Smart PDF Sorter Output/
+AS Resume Sorter/
     2026-08-26_10-32-AM/
         Benjamin Perez/
             Benjamin_Perez_Application_Report.pdf
@@ -528,10 +528,10 @@ English), so scanned PDFs are read automatically on a brand-new computer.
 You can confirm what it's using at any time:
 
 ```powershell
-& "$env:ProgramFiles\Smart PDF Sorter\SmartPDFSorter.exe" --ocr-info
+& "$env:ProgramFiles\AS Resume Sorter\SmartPDFSorter.exe" --ocr-info
 ```
 
-The output appears a moment after your prompt returns. Smart PDF Sorter is a
+The output appears a moment after your prompt returns. AS Resume Sorter is a
 windowed program, so PowerShell does not wait for it — see
 [Scripting the command line](#scripting-the-command-line) if you need to check
 the result in a script.
@@ -576,8 +576,8 @@ Whichever mode you use:
 ## Setting up
 
 ```bash
-git clone https://github.com/kingnazz/AnotherSort.git
-cd AnotherSort
+git clone https://github.com/kingnazz/AnotherSmartSort.git
+cd AnotherSmartSort
 
 python -m venv .venv
 # Windows
@@ -982,6 +982,13 @@ the grouping engine, or the UI.
 
 Set `SMART_PDF_SORTER_HOME` to override the location, and
 `SMART_PDF_SORTER_LOG_LEVEL=DEBUG` for verbose logging.
+
+The `SmartPDFSorter` folder name predates the rename to AS Resume Sorter and is
+kept on purpose. It is the address of every existing installation's settings and
+history; renaming it would not move that data, it would abandon it, and an
+upgrade would look like the application had forgotten everything it knew. The
+same reasoning keeps the `SMART_PDF_SORTER_*` variables above under their
+original names.
 
 ## Current state
 

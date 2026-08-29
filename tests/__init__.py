@@ -1,1 +1,1 @@
-"""Smart PDF Sorter test suite."""
+"""AS Resume Sorter test suite."""

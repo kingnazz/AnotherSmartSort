@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "smart-pdf-sorter"
+name = "as-resume-sorter"
 # The version lives in app/version.py and is read from there. Do not add a
 # literal version here -- see app/version.py for the single source of truth.
 dynamic = ["version"]
@@ -11,7 +11,7 @@ description = "Understand combined PDFs, group pages into logical documents, rev
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Proprietary" }
-authors = [{ name = "Smart PDF Sorter" }]
+authors = [{ name = "AS Resume Sorter" }]
 dependencies = [
     "PySide6>=6.6,<7",
     "PyMuPDF>=1.24",
@@ -25,7 +25,7 @@ dependencies = [
 dev = ["pytest>=8.0", "pytest-cov>=5.0", "pyinstaller>=6.6"]
 
 [project.gui-scripts]
-smart-pdf-sorter = "app.main:main"
+as-resume-sorter = "app.main:main"
 
 [tool.setuptools.packages.find]
 include = ["app*"]

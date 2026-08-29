@@ -1,4 +1,4 @@
-"""Enumerations shared across the Smart PDF Sorter domain model.
+"""Enumerations shared across the AS Resume Sorter domain model.
 
 Document *types* deliberately are not an enum: they are declared by the active
 :class:`~app.profiles.base.DocumentProfile` so new profiles (Accounting, Legal,

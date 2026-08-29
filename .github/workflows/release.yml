@@ -136,7 +136,7 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "The release MSI failed to install (exit $($p.ExitCode))" }
 
           # GUI-subsystem executable: must be launched through the waiting helper.
-          $exe = "$env:ProgramFiles\Smart PDF Sorter\SmartPDFSorter.exe"
+          $exe = "$env:ProgramFiles\AS Resume Sorter\SmartPDFSorter.exe"
           .\scripts\Invoke-AppCli.ps1 -Exe $exe -AppArgs '--smoke-test'
           if ($LASTEXITCODE -ne 0) { throw "The release build failed its smoke test" }
 
@@ -178,7 +178,7 @@ jobs:
         run: |
           version="${{ needs.build.outputs.version }}"
           {
-            echo "## Smart PDF Sorter $version"
+            echo "## AS Resume Sorter $version"
             echo
             echo "### Install"
             echo
@@ -220,7 +220,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           draft: true
-          name: Smart PDF Sorter ${{ needs.build.outputs.version }}
+          name: AS Resume Sorter ${{ needs.build.outputs.version }}
           body_path: release-notes.md
           files: |
             artifacts/SmartPDFSorter-Setup-*.msi
