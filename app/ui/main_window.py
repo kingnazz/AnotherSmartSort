@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut
+from PySide6.QtGui import QCloseEvent, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -39,6 +39,7 @@ from app.ui.widgets.drop_zone import DropZone
 from app.ui.widgets.extract_selector import ExtractSelector
 from app.ui.widgets.queue_table import QueueTable
 from app.utils.logging_setup import get_logger, log_file_path
+from app.utils.paths import resource_path
 from app.utils.system import format_duration, open_in_file_manager, plural
 from app.workers.analysis_worker import AnalysisWorker
 from app.workers.export_worker import ExportWorker
@@ -122,6 +123,21 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(20, 12, 20, 12)
         layout.setSpacing(10)
 
+        # The square mark, not the wordmark: this bar is ~44px tall, and the
+        # wordmark sets the name over three lines. Scaled to fit, its type
+        # would be a few pixels high. The mark survives being small; that is
+        # what it is for.
+        mark = QLabel()
+        mark_path = Path(resource_path("assets", "icon.png"))
+        if mark_path.exists():
+            mark.setPixmap(
+                QPixmap(str(mark_path)).scaled(
+                    24, 24,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
+
         brand = QLabel(APP_NAME)
         brand.setProperty("role", "brand")
 
@@ -140,6 +156,7 @@ class MainWindow(QMainWindow):
         about_button.setProperty("variant", "subtle")
         about_button.clicked.connect(self._open_about)
 
+        layout.addWidget(mark)
         layout.addWidget(brand)
         layout.addWidget(self._provider_label)
         layout.addStretch(1)

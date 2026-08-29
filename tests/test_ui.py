@@ -1377,6 +1377,25 @@ class TestBranding:
         for text in self.labels(window):
             assert self.FORMER not in text, text
 
+    def test_the_header_shows_the_mark_beside_the_name(self, qapp, window) -> None:
+        """The header carries the square mark, not the wordmark: this bar is
+        ~44px tall and the wordmark sets the name over three lines."""
+        from PySide6.QtWidgets import QLabel
+
+        marks = [
+            label
+            for label in window.findChildren(QLabel)
+            if label.pixmap() is not None and not label.pixmap().isNull()
+        ]
+        assert marks, "the header lost its mark"
+        pixmap = marks[0].pixmap()
+        assert pixmap.width() <= 32 and pixmap.height() <= 32, (
+            f"the header mark is {pixmap.width()}x{pixmap.height()}; it has to fit the bar"
+        )
+        assert abs(pixmap.width() - pixmap.height()) <= 1, (
+            "the header mark is not square -- the wordmark was used by mistake"
+        )
+
     def test_the_about_dialog_is_titled_for_the_product(self, qapp, window) -> None:
         from app.ui.about_dialog import AboutDialog
 
