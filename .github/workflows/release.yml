@@ -2,7 +2,7 @@ name: Release
 
 # Builds signed-ready release artifacts when a version tag is pushed:
 #
-#     git tag v1.0.0 && git push origin v1.0.0
+#     git tag v1.0.1 && git push origin v1.0.1
 #
 # The GitHub Release is created as a DRAFT. Nothing is published to the world
 # until a human reviews the artifacts and presses publish — releasing software

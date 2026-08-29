@@ -107,7 +107,7 @@ def export_root(window) -> Path:
     return runs[0]
 
 
-def run_until_idle(qapp, window, limit: int = 600) -> None:
+def run_until_idle(qapp, window, timeout: float = 180.0) -> None:
     """Pump the event loop until the window is genuinely idle.
 
     "Idle" deliberately does not mean "the worker stopped running". A
@@ -118,10 +118,18 @@ def run_until_idle(qapp, window, limit: int = 600) -> None:
     caller a window that is about to become busy again, so idleness is only
     believed once it survives a drain.
 
-    Bounded by wall-clock time rather than an iteration count, since one
-    call may now have to carry the caller through two workers.
+    Running out of time raises. This used to return quietly, which meant a
+    caller that had merely waited too long went on to assert against a
+    half-finished window and failed somewhere else entirely -- a CI run once
+    reported "'2026-08-29_06-49-PM' not in 'Saving documents... 4 of 4'",
+    which reads like a broken status line and was really a loaded runner
+    taking longer than the budget. A wait that gives up should say so.
+
+    The budget is generous because it is a safety net, not a performance
+    assertion: a healthy run returns in well under a second, and a slow
+    shared CI runner is not a bug in the code under test.
     """
-    deadline = time.monotonic() + limit * 0.05
+    deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         worker = window._analysis_worker or window._export_worker
         if worker is not None and worker.isRunning():
@@ -134,7 +142,13 @@ def run_until_idle(qapp, window, limit: int = 600) -> None:
             qapp.processEvents()
         if not window._busy:
             return
-    qapp.processEvents()
+
+    running = "analysis" if window._analysis_worker else "export"
+    raise AssertionError(
+        f"the window was still busy {timeout:.0f}s after being asked to work "
+        f"({running} worker outstanding; status: {window._status_label.text()!r}). "
+        "Nothing was asserted -- this is the wait giving up, not the feature failing."
+    )
 
 
 class TestTheme:
