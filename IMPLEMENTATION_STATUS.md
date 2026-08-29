@@ -1,10 +1,12 @@
 # Implementation Status
 
 **Version:** 1.0.0
-**Last updated:** 2026-08-19
-**Phase:** production hardening of Phase 4 — complete. One of the three parsers
-is verified against real client files; the other two are not, and this document
-says which is which everywhere it matters.
+**Last updated:** 2026-08-28
+**Product name:** AS Resume Sorter (renamed from Smart PDF Sorter — see
+[Naming](#naming))
+**Phase:** final polish — complete. One of the three parsers is verified against
+real client files; the other two are not, and this document says which is which
+everywhere it matters.
 
 ---
 
@@ -26,9 +28,9 @@ proven on a clean Windows machine.
 
 **What real client data exists here.** Five real ATS application reports sit in
 the git-ignored `qa/input/`, and the separator-page parser is verified against
-them. The two files the PageUp and packet parsers were built for — `482910
-Applications and Resumes.pdf` and `Facilities Coordinator_Apps.zip` — **have
-never been present in any development environment for this project**, so those
+them. The two files the PageUp and packet parsers were built for — a 104-page
+bulk compile and a 17-file per-applicant corpus — **have never been present in
+any development environment for this project**, so those
 two parsers are verified against synthetic reproductions of their structures
 and nothing more. A synthetic fixture proves the parser does what its author
 believed the format does; it cannot prove the belief was right.
@@ -55,9 +57,8 @@ anchor pass before page classification.
 | `SubmittedApplicantPacketParser` | Submitted applicant packet | Synthetic reproduction only **[synthetic]** |
 
 **Important caveat, restated because it decides how to read everything below.**
-The real 104-page PageUp file (`482910 Applications and Resumes.pdf`) and the
-real 17-file corpus (`Facilities Coordinator_Apps.zip`) were **not available**
-in this or any previous development environment. Both parsers were built to the
+The real 104-page PageUp bulk compile and the real 17-file per-applicant
+corpus were **not available** in this or any previous development environment. Both parsers were built to the
 structures documented in the phase specification and verified against synthetic
 fixtures that reproduce those structures page for page -- including the exact
 ground-truth page ranges the specification lists. That is not the same as
@@ -187,6 +188,28 @@ scrolling never re-asked for thumbnails (they were requested once, on load), and
 a thumbnail that finished rendering was cached without being painted onto the
 board. Either alone leaves a large file showing placeholders indefinitely.
 
+### Final polish pass (this phase)
+
+Two product changes, no behaviour changed in parsing, classification or OCR.
+
+**One run, one folder.** Every Sort & Save now creates a new folder inside the
+chosen output directory, named for the moment the run started —
+`2026-08-26_10-32-AM`. Before this, a second run into the same directory
+interleaved with the first and afterwards nothing said which resume came from
+which batch. The folder is created once per batch rather than per PDF, is
+created atomically so two runs in the same minute cannot land in the same place,
+and is only created once there is something to export — a run that fails
+validation leaves no empty folder behind to be mistaken for a finished export.
+Everything that reports a destination reports the run folder: the completion
+dialog, the status line, **Open Output Folder**, the processing history, the
+Excel index, and the log. **[unit]**
+
+**Renamed to AS Resume Sorter.** Window title, header, About, Settings, the
+update row, the installer, Programs and Features, Start Menu and desktop
+shortcuts, the install path, the EXE's Windows metadata, the README and the
+GitHub Release title. See [Naming](#naming) for the three things that
+deliberately kept their old names, and why. **[unit] [win-ci]**
+
 ### The deterministic ATS report parser (previous phase)
 
 Real ATS exports are not free-form documents needing page-by-page
@@ -249,7 +272,7 @@ numbers above are the ones that matter for this client's actual workflow.
 
 Everything from the previous two phases is unchanged and still passes. The
 deployment path is verified end to end on a clean `windows-latest` runner —
-[run 32218291058](https://github.com/kingnazz/AnotherSort/actions/runs/32218291058),
+[run 32218291058](https://github.com/kingnazz/AnotherSmartSort/actions/runs/32218291058),
 all 27 steps green:
 
 | Artifact | Size | Status |
@@ -257,7 +280,7 @@ all 27 steps green:
 | `SmartPDFSorter-Setup-1.0.0.msi` | 93.3 MB **[measured]** | Primary deliverable **[win-ci]** |
 | `SmartPDFSorter-Portable-1.0.0.exe` | ~76 MB | Secondary **[win-ci]** |
 | `SHA256SUMS.txt` | — | Checksums for both **[win-ci]** |
-| Installed footprint | 306.6 MB **[measured]** | `C:\Program Files\Smart PDF Sorter` |
+| Installed footprint | 306.6 MB **[measured]** | `C:\Program Files\AS Resume Sorter` |
 
 The green Windows run proves, in order: test suite → OCR staging →
 **`tesseract --version` and `--list-langs` against the bundled binary** → real
@@ -279,11 +302,38 @@ List of available languages in ".../ocr/tessdata/" (2): eng, osd
 
 ---
 
+## Naming
+
+The product is **AS Resume Sorter**. It shipped as *Smart PDF Sorter* and was
+renamed; three things kept their original names on purpose, and each of them
+looks like an oversight to anyone reading the code fresh.
+
+| Kept as | Where | Why |
+|---------|-------|-----|
+| `SmartPDFSorter` | `%LOCALAPPDATA%\SmartPDFSorter\` — settings and history | Renaming a data folder does not migrate what is in it, it abandons it. An upgraded installation would look to the user like the application had forgotten every setting and its whole history. Nobody sees this string. |
+| `SMART_PDF_SORTER_HOME`, `SMART_PDF_SORTER_LOG_LEVEL` | Environment overrides | Documented deployment knobs. Renaming them silently stops honouring the variables existing scripts already set. |
+| `7B3F2E64-9A21-4C0D-9E2B-5F1A6D8C4E30` | MSI `UpgradeCode` | Windows Installer identifies a product family by this GUID alone. It is what makes the rebranded MSI *upgrade* an installed Smart PDF Sorter instead of installing a second product beside it. `ProductName` and `Manufacturer` are only labels. |
+
+Build artifacts also keep the `SmartPDFSorter-*` filenames
+(`SmartPDFSorter-Setup-1.0.0.msi`, `SmartPDFSorter-Portable-1.0.0.exe`,
+`SmartPDFSorter.exe`). Nobody reads a product name off a filename here — the
+Release page, the installer, Programs and Features and the running application
+all say AS Resume Sorter — while the two PyInstaller `.spec` files are named
+after that constant and invoked by name from CI, and the release workflow's
+artifact cleanup matches on the prefix. Renaming them buys nothing and costs
+three places that break quietly.
+
+`tests/test_branding.py` and `tests/test_ui.py::TestBranding` pin both halves:
+every surface that must show the new name, and every one of the above that must
+not change.
+
+---
+
 ## Deployment
 
 ### MSI installer
 - [x] WiX 5 sources in `installer/Package.wxs`, buildable from source **[win-ci]**
-- [x] Per-machine install under `C:\Program Files\Smart PDF Sorter` **[win-ci]**
+- [x] Per-machine install under `C:\Program Files\AS Resume Sorter` **[win-ci]**
 - [x] 64-bit Windows 10/11, with launch conditions rejecting anything older **[unit]**
 - [x] Registered in Programs and Features with name, version, publisher, icon **[win-ci]**
 - [x] Start Menu shortcut created, and removed on uninstall **[win-ci]**
@@ -317,7 +367,7 @@ List of available languages in ".../ocr/tessdata/" (2): eng, osd
 - [x] Only the runnable closure is shipped: executable + 26 of 51 DLLs +
       `eng`/`osd` data = ~130 MB of the installer's 239 MB **[measured]**
 - [x] Dependency closure computed from real PE imports, transitively **[unit] [measured]**
-- [x] Installed to `C:\Program Files\Smart PDF Sorter\ocr\` **[win-ci]**
+- [x] Installed to `C:\Program Files\AS Resume Sorter\ocr\` **[win-ci]**
 - [x] Found automatically; `TESSDATA_PREFIX` set so it finds its language data **[win-ci] [unit]**
 - [x] Bundled engine preferred over any system install, so behaviour is identical
       on every client PC **[unit]**
@@ -642,7 +692,7 @@ added in `tests/test_ocr.py::TestOCRTextMerging`.
 
 ### Licensing — needs a business decision before client distribution
 
-**PyMuPDF/MuPDF is licensed under AGPL v3.** Distributing Smart PDF Sorter to
+**PyMuPDF/MuPDF is licensed under AGPL v3.** Distributing AS Resume Sorter to
 third parties under the AGPL obliges you to offer those recipients the complete
 corresponding source of the whole application on the same terms. For proprietary
 distribution you must either:
@@ -660,8 +710,8 @@ was shipped quietly.
 ### Not yet verified
 0. **The PageUp and packet parsers have never seen a real file. [untested]**
    This is the largest open risk in the product and belongs at the top of this
-   list. `482910 Applications and Resumes.pdf` and `Facilities
-   Coordinator_Apps.zip` were not present in any development environment; both
+   list. Neither the 104-page bulk compile nor the 17-file per-applicant
+   corpus was present in any development environment; both
    parsers were written from the phase specification's prose description of
    those files and are proven only against synthetic reproductions of it.
    Everything the specification stated — the cover page's exact wording, the

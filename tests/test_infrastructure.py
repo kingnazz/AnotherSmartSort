@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 import pymupdf
@@ -352,6 +353,67 @@ class TestLoggingPrivacy:
         record = self._record("pdf.analyzed file='Packet.pdf' pages=10")
         RedactingFilter().filter(record)
         assert record.getMessage() == "pdf.analyzed file='Packet.pdf' pages=10"
+
+
+class TestFixtureDataIsInvented:
+    """The generated fixtures must never carry real applicant or client data.
+
+    This repository is public. Everything under ``scripts/`` that generates
+    sample documents is written to *look* like the client's files, and that is
+    exactly what makes a real value pasted in there hard to spot: it belongs, it
+    reads correctly, and nobody greps a file called ``fixtures`` for somebody's
+    phone number. A comment claiming the data is invented has already failed to
+    keep it invented once, so this checks instead of trusting.
+
+    It catches the two classes a machine can recognise. Names, job titles and
+    requisition numbers still need a person to look -- keep using obviously
+    invented ones.
+    """
+
+    #: Reserved by RFC 2606 and RFC 6761 -- these can never belong to anybody.
+    SAFE_DOMAINS = ("example.com", "example.net", "example.org", "example.edu")
+    #: 555 is the North American fiction convention, and 555 is not an assigned
+    #: area code either, so a number carrying it in either position -- the
+    #: repository uses both -- cannot reach a real subscriber.
+    SAFE_PHONE = re.compile(r"\b555\b")
+
+    FIXTURE_MODULES = (
+        "sample_data.py",
+        "ats_fixtures.py",
+        "pageup_fixtures.py",
+        "packet_fixtures.py",
+        "mixed_batch.py",
+    )
+
+    def sources(self) -> list[tuple[str, str]]:
+        root = Path(__file__).resolve().parent.parent / "scripts"
+        found = [
+            (name, (root / name).read_text(encoding="utf-8"))
+            for name in self.FIXTURE_MODULES
+            if (root / name).is_file()
+        ]
+        assert found, "no fixture modules found -- this test is checking nothing"
+        return found
+
+    def test_every_email_address_uses_a_reserved_domain(self) -> None:
+        pattern = re.compile(r"[\w.+-]+@[\w.-]+\.\w+")
+        offenders = [
+            f"{name}: {address}"
+            for name, text in self.sources()
+            for address in pattern.findall(text)
+            if not address.lower().endswith(self.SAFE_DOMAINS)
+        ]
+        assert not offenders, f"fixture email addresses outside example.*: {offenders}"
+
+    def test_every_phone_number_is_a_reserved_one(self) -> None:
+        pattern = re.compile(r"\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}")
+        offenders = [
+            f"{name}: {number}"
+            for name, text in self.sources()
+            for number in pattern.findall(text)
+            if not self.SAFE_PHONE.search(number)
+        ]
+        assert not offenders, f"fixture phone numbers that could reach a real person: {offenders}"
 
 
 class TestProcessingJob:

@@ -12,6 +12,10 @@ from pathlib import Path
 
 from app import APP_NAME, ORG_NAME
 
+#: Redirects every application data path, for portable use and for tests.
+#: Kept under its original name through the rename to "AS Resume Sorter": it is
+#: a documented deployment knob, and renaming it would silently stop honouring
+#: the variable existing scripts already set.
 _ENV_OVERRIDE = "SMART_PDF_SORTER_HOME"
 
 
@@ -63,14 +67,19 @@ def cache_dir() -> Path:
 
 
 def default_output_dir() -> Path:
-    """Default export destination: Documents/Smart PDF Sorter Output."""
+    """Default export destination: Documents/AS Resume Sorter.
+
+    Only ever used when nothing is configured yet. An existing installation
+    keeps whatever folder it already had -- that choice lives in settings.json
+    and is not re-derived, so this rename cannot move anybody's output.
+    """
     if sys.platform.startswith("win"):
         documents = Path.home() / "Documents"
     else:
         documents = Path.home() / "Documents"
         if not documents.exists():
             documents = Path.home()
-    return documents / "Smart PDF Sorter Output"
+    return documents / "AS Resume Sorter"
 
 
 def resource_path(*parts: str) -> Path:

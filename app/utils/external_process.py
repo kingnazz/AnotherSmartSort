@@ -1,6 +1,6 @@
 """The one place this application starts an external program.
 
-Smart PDF Sorter is a windowed application: it has no console of its own. On
+AS Resume Sorter is a windowed application: it has no console of its own. On
 Windows, starting a *console* executable from a windowed process makes Windows
 create a console for it, which appears as a black window that flashes on
 screen and can steal focus. Tesseract is a console executable and OCR runs once

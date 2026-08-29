@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Smart PDF Sorter - Windows Installer package.
+  AS Resume Sorter - Windows Installer package.
 
   Build (from the repository root, on Windows):
 
@@ -19,8 +19,13 @@
     * perMachine so the application is available to every user of the PC and
       can be deployed by RMM/Intune/GPO under SYSTEM.
     * The UpgradeCode below is FIXED FOREVER. Windows Installer uses it to
-      recognise that a new MSI replaces an older Smart PDF Sorter rather than
-      installing a second copy. Never regenerate it.
+      recognise that a new MSI replaces the installed product rather than
+      installing a second copy. Never regenerate it. It predates the rename
+      from "Smart PDF Sorter" to "AS Resume Sorter" and deliberately survived
+      it: keeping it is what makes the rebranded MSI upgrade an existing
+      Smart PDF Sorter installation in place, instead of leaving two entries in
+      Programs and Features pointing at two copies of the same application.
+      ProductName and Manufacturer are only labels; this GUID is the identity.
     * ProductCode is auto-generated per build (Product/@Id="*" behaviour is the
       WiX v4+ default), which is what MajorUpgrade requires.
     * No user data is written here. Settings and history live in the user's
@@ -29,8 +34,8 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
 
-  <?define ProductName = "Smart PDF Sorter" ?>
-  <?define Manufacturer = "Smart PDF Sorter" ?>
+  <?define ProductName = "AS Resume Sorter" ?>
+  <?define Manufacturer = "AS Resume Sorter" ?>
   <?define ExeName = "SmartPDFSorter.exe" ?>
   <!-- Stable for the life of the product. Changing it breaks upgrades. -->
   <?define UpgradeCodeGuid = "7B3F2E64-9A21-4C0D-9E2B-5F1A6D8C4E30" ?>
@@ -74,8 +79,8 @@
     <!-- Programs and Features metadata. -->
     <Icon Id="AppIcon.exe" SourceFile="$(RepoRoot)\assets\icon.ico" />
     <Property Id="ARPPRODUCTICON" Value="AppIcon.exe" />
-    <Property Id="ARPHELPLINK" Value="https://github.com/kingnazz/AnotherSort" />
-    <Property Id="ARPURLINFOABOUT" Value="https://github.com/kingnazz/AnotherSort" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/kingnazz/AnotherSmartSort" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/kingnazz/AnotherSmartSort" />
     <!--
       ARPNOMODIFY is deliberately NOT set here: WixUI_InstallDir already defines
       it (to 1, which is what a single-feature package wants), and declaring it

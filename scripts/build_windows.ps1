@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Produces the complete Smart PDF Sorter Windows distribution.
+    Produces the complete AS Resume Sorter Windows distribution.
 
 .DESCRIPTION
     One command, everything needed to deploy to clients:
@@ -191,7 +191,7 @@ Set one of:
 
 Push-Location $RepoRoot
 try {
-    Write-Host "Smart PDF Sorter - Windows production build" -ForegroundColor White
+    Write-Host "AS Resume Sorter - Windows production build" -ForegroundColor White
     Write-Host "===========================================" -ForegroundColor White
 
     # ---------------------------------------------------------------- 1. env

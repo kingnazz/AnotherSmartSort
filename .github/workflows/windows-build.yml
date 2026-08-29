@@ -213,7 +213,7 @@ jobs:
           Write-Host "UpgradeCode    : $upgradeCode"
 
           if ($productVersion -ne $version) { throw "ProductVersion is '$productVersion', expected '$version'" }
-          if ($productName -ne "Smart PDF Sorter") { throw "Unexpected ProductName '$productName'" }
+          if ($productName -ne "AS Resume Sorter") { throw "Unexpected ProductName '$productName'" }
           if ($upgradeCode -ne "{7B3F2E64-9A21-4C0D-9E2B-5F1A6D8C4E30}") {
             throw "UpgradeCode changed to '$upgradeCode' - this would break upgrades from released versions"
           }
@@ -240,7 +240,7 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          $installDir = "$env:ProgramFiles\Smart PDF Sorter"
+          $installDir = "$env:ProgramFiles\AS Resume Sorter"
           $exe = Join-Path $installDir "SmartPDFSorter.exe"
 
           Write-Host "== Installed files =="
@@ -276,7 +276,7 @@ jobs:
           $fileVersion = (Get-Item $exe).VersionInfo
           Write-Host "  ProductName: $($fileVersion.ProductName)"
           Write-Host "  FileVersion: $($fileVersion.FileVersion)"
-          if ($fileVersion.ProductName -ne "Smart PDF Sorter") { throw "Missing product metadata on the EXE" }
+          if ($fileVersion.ProductName -ne "AS Resume Sorter") { throw "Missing product metadata on the EXE" }
 
       - name: Verify Windows registration and the Start Menu shortcut
         shell: pwsh
@@ -289,9 +289,9 @@ jobs:
             "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
           )
           $entry = Get-ItemProperty $keys -ErrorAction SilentlyContinue |
-                   Where-Object { $_.DisplayName -eq "Smart PDF Sorter" } |
+                   Where-Object { $_.DisplayName -eq "AS Resume Sorter" } |
                    Select-Object -First 1
-          if (-not $entry) { throw "Smart PDF Sorter is not registered in Programs and Features" }
+          if (-not $entry) { throw "AS Resume Sorter is not registered in Programs and Features" }
           Write-Host "  DisplayName    : $($entry.DisplayName)"
           Write-Host "  DisplayVersion : $($entry.DisplayVersion)"
           Write-Host "  Publisher      : $($entry.Publisher)"
@@ -301,7 +301,7 @@ jobs:
           if (-not $entry.Publisher) { throw "No publisher recorded in Programs and Features" }
 
           Write-Host "== Start Menu shortcut =="
-          $shortcut = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Smart PDF Sorter\Smart PDF Sorter.lnk"
+          $shortcut = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\AS Resume Sorter\AS Resume Sorter.lnk"
           if (-not (Test-Path $shortcut)) {
             Get-ChildItem "$env:ProgramData\Microsoft\Windows\Start Menu\Programs" -Recurse -Filter "*.lnk" |
               Select-Object -ExpandProperty FullName | Write-Host
@@ -313,13 +313,13 @@ jobs:
           if (-not (Test-Path $link.TargetPath)) { throw "The Start Menu shortcut points at a missing file" }
 
           Write-Host "== Desktop shortcut should NOT exist by default =="
-          $desktop = "$env:PUBLIC\Desktop\Smart PDF Sorter.lnk"
+          $desktop = "$env:PUBLIC\Desktop\AS Resume Sorter.lnk"
           if (Test-Path $desktop) { throw "A desktop shortcut was created without being requested" }
 
       - name: Verify user data lives outside Program Files
         shell: pwsh
         run: |
-          $installDir = "$env:ProgramFiles\Smart PDF Sorter"
+          $installDir = "$env:ProgramFiles\AS Resume Sorter"
           # The smoke test above already ran the app, so its data directory exists.
           $dataDir = "$env:LOCALAPPDATA\SmartPDFSorter"
           if (-not (Test-Path $dataDir)) { throw "User data directory was not created at $dataDir" }
@@ -350,18 +350,18 @@ jobs:
       - name: Verify the uninstall removed everything
         shell: pwsh
         run: |
-          $installDir = "$env:ProgramFiles\Smart PDF Sorter"
+          $installDir = "$env:ProgramFiles\AS Resume Sorter"
           $exe = Join-Path $installDir "SmartPDFSorter.exe"
           if (Test-Path $exe) { throw "The application executable survived uninstall" }
           Write-Host "OK: application binaries removed"
 
-          $shortcut = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Smart PDF Sorter\Smart PDF Sorter.lnk"
+          $shortcut = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\AS Resume Sorter\AS Resume Sorter.lnk"
           if (Test-Path $shortcut) { throw "The Start Menu shortcut survived uninstall" }
           Write-Host "OK: Start Menu shortcut removed"
 
           $entry = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue |
-                   Where-Object { $_.DisplayName -eq "Smart PDF Sorter" }
-          if ($entry) { throw "Smart PDF Sorter is still registered in Programs and Features" }
+                   Where-Object { $_.DisplayName -eq "AS Resume Sorter" }
+          if ($entry) { throw "AS Resume Sorter is still registered in Programs and Features" }
           Write-Host "OK: Programs and Features entry removed"
 
           # User data must be left alone: uninstalling an application should not
@@ -397,7 +397,7 @@ jobs:
           Install-Msi @("/i", "`"$msi`"", "/qn", "/norestart")
 
           $entries = @(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue |
-                       Where-Object { $_.DisplayName -eq "Smart PDF Sorter" })
+                       Where-Object { $_.DisplayName -eq "AS Resume Sorter" })
           Write-Host "Programs and Features entries after re-install: $($entries.Count)"
           if ($entries.Count -ne 1) { throw "Expected exactly one installation, found $($entries.Count)" }
 
@@ -406,7 +406,7 @@ jobs:
           }
           Write-Host "OK: upgrade replaced the install in place and preserved user data"
 
-          .\scripts\Invoke-AppCli.ps1 -Exe "$env:ProgramFiles\Smart PDF Sorter\SmartPDFSorter.exe" -AppArgs '--smoke-test'
+          .\scripts\Invoke-AppCli.ps1 -Exe "$env:ProgramFiles\AS Resume Sorter\SmartPDFSorter.exe" -AppArgs '--smoke-test'
           if ($LASTEXITCODE -ne 0) { throw "The upgraded installation failed its smoke test" }
 
           Install-Msi @("/x", "`"$msi`"", "/qn", "/norestart")

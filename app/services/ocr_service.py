@@ -25,6 +25,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 
+from app import APP_NAME
 from app.utils.external_process import run_hidden
 from app.utils.logging_setup import get_logger
 from app.utils.paths import resource_path
@@ -229,7 +230,7 @@ class TesseractOCRProvider(OCRProvider):
             self._availability = OCRAvailability(
                 False,
                 "No OCR engine was found. This installation should include one; "
-                "reinstall Smart PDF Sorter, or set the Tesseract path in Settings, "
+                f"reinstall {APP_NAME}, or set the Tesseract path in Settings, "
                 "to read scanned pages.",
             )
             return self._availability
@@ -254,7 +255,9 @@ class TesseractOCRProvider(OCRProvider):
 
         version = (result.stdout or result.stderr or "").splitlines()
         version_text = version[0].strip() if version else "tesseract"
-        origin = "included with Smart PDF Sorter" if self.using_bundled else "found on this computer"
+        origin = (
+            f"included with {APP_NAME}" if self.using_bundled else "found on this computer"
+        )
         self._availability = OCRAvailability(
             True,
             f"{version_text} is ready ({origin}).",

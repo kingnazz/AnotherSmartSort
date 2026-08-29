@@ -1,4 +1,4 @@
-"""Typed domain models for Smart PDF Sorter."""
+"""Typed domain models for AS Resume Sorter."""
 
 from .candidate import Candidate, normalize_person_name
 from .document import DocumentGroup, apply_separator_policy_to_group

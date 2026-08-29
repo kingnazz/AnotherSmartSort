@@ -612,6 +612,20 @@ class TestBatchRunFolder:
     def run_folders(self, base: Path) -> list[Path]:
         return sorted(p for p in base.iterdir() if p.is_dir())
 
+    def test_the_log_records_which_folder_the_run_went_to(
+        self, pipeline, packet: Path, tmp_path: Path, caplog
+    ) -> None:
+        """"Where did my files go?" has to be answerable from the log alone."""
+        import logging
+
+        analysis = pipeline.analyze_file(packet)
+        with caplog.at_level(logging.INFO, logger="smartpdfsorter.export"):
+            result = ExportService(batch_folder=True).export([analysis], tmp_path)
+
+        assert any(
+            str(result.output_directory) in record.getMessage() for record in caplog.records
+        ), "the run folder is not recoverable from the log"
+
     def test_a_run_folder_is_created(
         self, pipeline, packet: Path, tmp_path: Path
     ) -> None:
