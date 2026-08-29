@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-    Runs a Smart PDF Sorter command-line switch and waits for it to finish.
+    Runs a AS Resume Sorter command-line switch and waits for it to finish.
 
 .DESCRIPTION
-    Smart PDF Sorter is a windowed (GUI subsystem) application, because it is a
+    AS Resume Sorter is a windowed (GUI subsystem) application, because it is a
     desktop program and must not flash a console window when a user launches it.
 
     A consequence of that on Windows: `cmd` and PowerShell do NOT wait for a GUI
@@ -30,7 +30,7 @@
     Fail if the application has not exited within this many seconds.
 
 .EXAMPLE
-    .\scripts\Invoke-AppCli.ps1 -Exe "C:\Program Files\Smart PDF Sorter\SmartPDFSorter.exe" -AppArgs '--smoke-test'
+    .\scripts\Invoke-AppCli.ps1 -Exe "C:\Program Files\AS Resume Sorter\SmartPDFSorter.exe" -AppArgs '--smoke-test'
     if ($LASTEXITCODE -ne 0) { throw "smoke test failed" }
 
 .EXAMPLE

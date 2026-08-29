@@ -25,6 +25,7 @@ from dataclasses import dataclass
 
 import requests
 
+from app import APP_NAME
 from app.utils.logging_setup import get_logger
 from app.version import __version__
 
@@ -110,7 +111,7 @@ class UpdateCheck:
             return "No releases have been published yet."
         if self.update_available:
             return f"Version {self.latest_version} is available."
-        return f"Smart PDF Sorter {self.current_version} is up to date."
+        return f"{APP_NAME} {self.current_version} is up to date."
 
 
 def check_for_updates(

@@ -1,6 +1,6 @@
 """Fetch and stage the Tesseract OCR runtime bundled with installed builds.
 
-A client should be able to install Smart PDF Sorter on a clean Windows PC and
+A client should be able to install AS Resume Sorter on a clean Windows PC and
 immediately process a scanned PDF. That means shipping an OCR engine, not
 telling the user to install one.
 
@@ -110,7 +110,7 @@ def sha256_of(path: Path) -> str:
 #: The mirror returns HTTP 403 for any User-Agent containing "python-urllib",
 #: which is urllib's default. Identify the build tool honestly instead -- and
 #: keep the substring "python-urllib" out of this string entirely.
-_USER_AGENT = "SmartPDFSorter-build/1.0 (+https://github.com/kingnazz/AnotherSort)"
+_USER_AGENT = "SmartPDFSorter-build/1.0 (+https://github.com/kingnazz/AnotherSmartSort)"
 _DOWNLOAD_ATTEMPTS = 3
 
 

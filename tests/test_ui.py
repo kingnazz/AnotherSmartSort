@@ -1345,3 +1345,73 @@ class TestCheckForUpdates:
             assert opened == ["https://example.com/r/2.0.0"]
         finally:
             dialog.deleteLater()
+
+
+class TestBranding:
+    """The product name on every surface a user actually looks at.
+
+    The rest of the rename -- installer, Windows metadata, published artefacts,
+    and the parts deliberately left alone -- is covered in
+    ``tests/test_branding.py``. These are the ones that need a live widget.
+    """
+
+    PRODUCT = "AS Resume Sorter"
+    FORMER = "Smart PDF Sorter"
+
+    def labels(self, widget) -> list[str]:
+        from PySide6.QtWidgets import QLabel
+
+        return [label.text() for label in widget.findChildren(QLabel)]
+
+    def test_the_window_title_is_the_product_name(self, qapp, window) -> None:
+        assert window.windowTitle() == self.PRODUCT
+
+    def test_the_header_carries_the_product_name(self, qapp, window) -> None:
+        assert self.PRODUCT in self.labels(window)
+
+    def test_the_first_screen_invites_you_by_name(self, qapp, window) -> None:
+        joined = " ".join(self.labels(window))
+        assert f"{self.PRODUCT} will identify" in joined
+
+    def test_no_visible_text_still_shows_the_old_name(self, qapp, window) -> None:
+        for text in self.labels(window):
+            assert self.FORMER not in text, text
+
+    def test_the_about_dialog_is_titled_for_the_product(self, qapp, window) -> None:
+        from app.ui.about_dialog import AboutDialog
+
+        dialog = AboutDialog(window.settings, window._tokens)
+        try:
+            assert dialog.windowTitle() == f"About {self.PRODUCT}"
+            assert self.PRODUCT in self.labels(dialog)
+            assert not any(self.FORMER in text for text in self.labels(dialog))
+        finally:
+            dialog.deleteLater()
+
+    def test_the_about_details_lead_with_the_product(self, qapp, window) -> None:
+        """This block gets copied into support emails; it has to say what it is."""
+        from app.ui.about_dialog import AboutDialog
+
+        dialog = AboutDialog(window.settings, window._tokens)
+        try:
+            assert dialog.details_text().startswith(self.PRODUCT)
+        finally:
+            dialog.deleteLater()
+
+    def test_the_update_row_reports_under_the_product_name(self, qapp, window) -> None:
+        from app.services.update_service import UpdateCheck
+        from app.ui.settings_dialog import SettingsDialog
+
+        dialog = SettingsDialog(
+            window.settings, window.settings_store, window._tokens, window
+        )
+        try:
+            dialog.show()
+            dialog._on_update_checked(
+                UpdateCheck(current_version="1.0.0", latest_version="1.0.0")
+            )
+            qapp.processEvents()
+            assert dialog.update_status.text().startswith(self.PRODUCT)
+        finally:
+            dialog.hide()
+            dialog.deleteLater()

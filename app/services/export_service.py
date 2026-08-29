@@ -271,6 +271,10 @@ class ExportService:
             if self.batch_folder and total:
                 destination = create_batch_directory(base)
                 result.output_directory = destination
+                # Support questions are almost always "where did my files go?".
+                # The run folder is the answer, and it is not knowable from the
+                # configured output directory alone.
+                logger.info("Export run folder: %s", destination)
         except OSError as exc:
             message = f"The output folder could not be created: {exc.strerror or exc}"
             result.errors.append((str(base), message))
