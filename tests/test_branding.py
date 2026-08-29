@@ -166,6 +166,84 @@ class TestWindowsFileMetadata:
         assert FORMER_PRODUCT not in text
 
 
+class TestTheArtwork:
+    """The icon files, and the one property that is easy to get wrong.
+
+    The product's logo is a wordmark: the mark plus the name set over three
+    lines, about 1.4:1. Shipping *that* as ``icon.png`` is a natural mistake and
+    an invisible one on the machine that makes it -- it looks fine in a file
+    browser at 512px. Windows then draws it at 16, 24, 32 and 48 px for the
+    taskbar, Start Menu and Programs and Features, and the About dialog scales
+    it into a 56x56 box, where the type is a few pixels tall and the whole thing
+    is a smudge. A square mark is the requirement, not a preference.
+
+    The second half is the ``.ico``. One 256px image inside it is valid and
+    loads without complaint; Windows just downscales it itself, badly, and the
+    result is a blurred taskbar icon next to a crisp one in Explorer.
+    """
+
+    #: What Windows actually asks for. 16 is the taskbar and the title bar,
+    #: 32 the Start Menu, 48 Explorer's medium icons, 256 its extra-large view.
+    REQUIRED_ICO_SIZES = {(16, 16), (32, 32), (48, 48), (256, 256)}
+
+    @pytest.fixture(scope="class")
+    def pillow(self):
+        return pytest.importorskip("PIL.Image", reason="Pillow is needed to read the artwork")
+
+    def test_both_icon_files_are_present(self) -> None:
+        assert (ROOT / "assets" / "icon.png").is_file()
+        assert (ROOT / "assets" / "icon.ico").is_file()
+
+    def test_the_icon_is_square(self, pillow) -> None:
+        """A wordmark here would be letterboxed into every icon slot."""
+        image = pillow.open(ROOT / "assets" / "icon.png")
+        width, height = image.size
+        assert width == height, (
+            f"icon.png is {width}x{height}. The icon must be the square mark; "
+            "the wordmark belongs in the README, not in a 16px taskbar slot"
+        )
+
+    def test_the_icon_is_big_enough_to_scale_down_from(self, pillow) -> None:
+        image = pillow.open(ROOT / "assets" / "icon.png")
+        assert image.size[0] >= 256, f"icon.png is only {image.size[0]}px"
+
+    def test_the_icon_has_a_transparent_background(self, pillow) -> None:
+        """An opaque rectangle shows as a white block on the dark theme and as
+        a card behind the icon in Programs and Features."""
+        image = pillow.open(ROOT / "assets" / "icon.png").convert("RGBA")
+        corners = [
+            image.getpixel((0, 0)),
+            image.getpixel((image.width - 1, 0)),
+            image.getpixel((0, image.height - 1)),
+            image.getpixel((image.width - 1, image.height - 1)),
+        ]
+        assert all(pixel[3] == 0 for pixel in corners), f"opaque corners: {corners}"
+
+    def test_the_ico_carries_the_sizes_windows_asks_for(self, pillow) -> None:
+        image = pillow.open(ROOT / "assets" / "icon.ico")
+        sizes = set(image.info.get("sizes", ()))
+        missing = self.REQUIRED_ICO_SIZES - sizes
+        assert not missing, (
+            f"icon.ico is missing {sorted(missing)}; it has {sorted(sizes)}. "
+            "Windows will downscale from the nearest size itself, badly"
+        )
+
+    def test_the_wordmark_is_present_for_the_documentation(self, pillow) -> None:
+        logo = ROOT / "assets" / "logo.png"
+        assert logo.is_file(), "the README's header image is missing"
+        assert pillow.open(logo).size[0] >= 512
+
+    def test_the_readme_leads_with_the_wordmark(self) -> None:
+        assert 'src="assets/logo.png"' in read("README.md")
+
+    def test_only_the_icon_is_bundled_into_the_build(self) -> None:
+        """The wordmark is documentation. Bundling it would put 200KB of
+        unused PNG inside every installer."""
+        common = read("packaging", "pyinstaller_common.py")
+        assert '"icon.png", "icon.ico"' in common
+        assert "logo.png" not in common
+
+
 class TestPublishedArtefacts:
     def test_the_release_is_titled_with_the_new_name(self) -> None:
         workflow = read(".github", "workflows", "release.yml")
@@ -181,8 +259,11 @@ class TestPublishedArtefacts:
         assert 'as-resume-sorter = "app.main:main"' in pyproject
 
     def test_the_readme_leads_with_the_new_name(self) -> None:
+        """The first heading names the product. The wordmark image may sit
+        above it -- that is the same name, drawn."""
         readme = read("README.md")
-        assert readme.startswith(f"# {PRODUCT}\n")
+        headings = [line for line in readme.splitlines() if line.startswith("# ")]
+        assert headings and headings[0] == f"# {PRODUCT}", headings[:1]
 
     def test_the_windows_ci_checks_the_new_name(self) -> None:
         """The build's own verification must assert the shipped name, or the

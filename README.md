@@ -1,3 +1,5 @@
+<img src="assets/logo.png" alt="AS Resume Sorter" width="320">
+
 # AS Resume Sorter
 
 AS Resume Sorter takes PDFs that contain several documents stuck together,
