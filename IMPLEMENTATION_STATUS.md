@@ -1,6 +1,6 @@
 # Implementation Status
 
-**Version:** 1.0.0
+**Version:** 1.0.1
 **Last updated:** 2026-08-28
 **Product name:** AS Resume Sorter (renamed from Smart PDF Sorter — see
 [Naming](#naming))
@@ -277,8 +277,8 @@ all 27 steps green:
 
 | Artifact | Size | Status |
 |----------|-----:|--------|
-| `SmartPDFSorter-Setup-1.0.0.msi` | 93.3 MB **[measured]** | Primary deliverable **[win-ci]** |
-| `SmartPDFSorter-Portable-1.0.0.exe` | ~76 MB | Secondary **[win-ci]** |
+| `SmartPDFSorter-Setup-<version>.msi` | 93.3 MB **[measured]** | Primary deliverable **[win-ci]** |
+| `SmartPDFSorter-Portable-<version>.exe` | 75.8 MB **[measured]** | Secondary **[win-ci]** |
 | `SHA256SUMS.txt` | — | Checksums for both **[win-ci]** |
 | Installed footprint | 306.6 MB **[measured]** | `C:\Program Files\AS Resume Sorter` |
 
@@ -315,7 +315,7 @@ looks like an oversight to anyone reading the code fresh.
 | `7B3F2E64-9A21-4C0D-9E2B-5F1A6D8C4E30` | MSI `UpgradeCode` | Windows Installer identifies a product family by this GUID alone. It is what makes the rebranded MSI *upgrade* an installed Smart PDF Sorter instead of installing a second product beside it. `ProductName` and `Manufacturer` are only labels. |
 
 Build artifacts also keep the `SmartPDFSorter-*` filenames
-(`SmartPDFSorter-Setup-1.0.0.msi`, `SmartPDFSorter-Portable-1.0.0.exe`,
+(`SmartPDFSorter-Setup-<version>.msi`, `SmartPDFSorter-Portable-<version>.exe`,
 `SmartPDFSorter.exe`). Nobody reads a product name off a filename here — the
 Release page, the installer, Programs and Features and the running application
 all say AS Resume Sorter — while the two PyInstaller `.spec` files are named
