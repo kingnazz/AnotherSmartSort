@@ -33,13 +33,54 @@ class TestVersionSourceOfTruth:
     def test_semantic_version_format(self) -> None:
         assert re.match(r"^\d+\.\d+\.\d+", __version__), __version__
 
-    def test_version_tuple(self) -> None:
-        assert version_tuple() == (1, 0, 0)
+    def numeric_part(self) -> str:
+        """``1.2.3`` out of ``1.2.3-rc1`` -- by splitting, not by the regex the
+        code under test uses, so this does not just agree with itself."""
+        return re.split(r"[-+]", __version__)[0]
 
-    def test_windows_four_part_version(self) -> None:
-        assert windows_version() == "1.0.0.0"
-        assert windows_version(7) == "1.0.0.7"
-        assert windows_version_tuple() == (1, 0, 0, 0)
+    def test_version_tuple_matches_the_declared_version(self) -> None:
+        expected = tuple(int(part) for part in self.numeric_part().split("."))
+        assert version_tuple() == expected
+
+    def test_the_windows_form_is_the_version_plus_a_build_number(self) -> None:
+        """Derived, not pinned: bumping app/version.py must not require edits
+        here. What is pinned is the *shape* -- three parts become four, and the
+        fourth is the build counter."""
+        base = self.numeric_part()
+        assert windows_version() == f"{base}.0"
+        assert windows_version(7) == f"{base}.7"
+        assert windows_version_tuple() == version_tuple() + (0,)
+
+    @pytest.mark.parametrize(
+        ("declared", "parts", "windows"),
+        [
+            ("2.11.3", (2, 11, 3), "2.11.3.0"),
+            ("1.0.1", (1, 0, 1), "1.0.1.0"),
+            ("10.0.0", (10, 0, 0), "10.0.0.0"),
+        ],
+    )
+    def test_the_helpers_on_known_versions(
+        self, monkeypatch: pytest.MonkeyPatch, declared: str, parts, windows: str
+    ) -> None:
+        """Literal coverage that does not move when the product version does."""
+        from app import version as version_module
+
+        monkeypatch.setattr(version_module, "__version__", declared)
+        assert version_module.version_tuple() == parts
+        assert version_module.windows_version() == windows
+        assert version_module.windows_version(7) == windows[:-1] + "7"
+        assert not version_module.is_prerelease()
+
+    def test_a_prerelease_label_is_recognised_and_dropped(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Windows has nowhere to put ``-rc1``, so the numeric parts win."""
+        from app import version as version_module
+
+        monkeypatch.setattr(version_module, "__version__", "1.2.3-rc1")
+        assert version_module.version_tuple() == (1, 2, 3)
+        assert version_module.windows_version() == "1.2.3.0"
+        assert version_module.is_prerelease()
 
     def test_package_exports_the_same_version(self) -> None:
         assert APP_VERSION == __version__
@@ -60,6 +101,26 @@ class TestVersionSourceOfTruth:
                 if re.search(r'"\d+\.\d+\.\d+"', line) and "version" in line.lower():
                     offenders.append(f"{path.relative_to(ROOT)}:{number}: {line.strip()}")
         assert not offenders, "hard-coded versions found:\n" + "\n".join(offenders)
+
+    def test_the_readme_install_commands_name_the_current_build(self) -> None:
+        """The README hands out commands people paste into a terminal.
+
+        ``msiexec /i SmartPDFSorter-Setup-1.0.0.msi`` against a 1.0.1 download
+        fails with "file not found", and the person pasting it has no reason to
+        suspect the documentation rather than their own copy. So every
+        installer filename in the README has to name the version actually being
+        built. This is the check that makes bumping app/version.py surface the
+        docs that go with it.
+        """
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        stale = sorted(
+            set(re.findall(r"SmartPDFSorter-(?:Setup|Portable)-(\d+\.\d+\.\d+)", readme))
+            - {__version__}
+        )
+        assert not stale, (
+            f"README names build(s) {stale} but this is {__version__}; "
+            "update the install commands"
+        )
 
     def test_module_prints_the_version(self) -> None:
         result = subprocess.run(
