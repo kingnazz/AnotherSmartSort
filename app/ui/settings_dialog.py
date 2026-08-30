@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app import APP_VERSION
+from app import APP_NAME, APP_VERSION
 from app.intelligence.ollama_provider import OllamaProvider
 from app.models.enums import ProviderKind, SeparatorPolicy
 from app.profiles import available_profiles, get_profile
@@ -60,7 +60,9 @@ class SettingsDialog(QDialog):
         self._tokens = palette
         self._api_key_changed = False
         self._update_worker = None
+        self._download_worker = None
         self._release_url = RELEASES_PAGE_URL
+        self._update_check = None
 
         self.setWindowTitle("Settings")
         self.setMinimumSize(620, 560)
@@ -154,12 +156,14 @@ class SettingsDialog(QDialog):
 
     # ------------------------------------------------------------------
     def _build_update_row(self) -> QWidget:
-        """Check for a newer release, and say where to get it.
+        """Check for a newer release, then fetch and install it.
 
-        Deliberately a check rather than an install. The MSI already upgrades
-        in place when a newer one is run, so the missing piece was only ever
-        finding out that a newer one exists; downloading and launching an
-        installer is a separate decision with its own consequences.
+        The button does one of two things depending on where the application
+        is running from. An installed build downloads the MSI, verifies it
+        against the published checksum, and hands it to Windows Installer. A
+        portable build or a source checkout cannot upgrade itself that way --
+        the MSI would install a second copy beside the portable EXE -- so those
+        keep opening the release page, which is what this always used to do.
         """
         self.update_button = QPushButton("Check for updates")
         self.update_button.clicked.connect(self._check_for_updates)
@@ -171,7 +175,7 @@ class SettingsDialog(QDialog):
         self.update_download_button = QPushButton("Get the update…")
         self.update_download_button.setProperty("variant", "accent")
         self.update_download_button.setVisible(False)
-        self.update_download_button.clicked.connect(self._open_release_page)
+        self.update_download_button.clicked.connect(self._start_update_download)
 
         row = QHBoxLayout()
         row.setSpacing(8)
@@ -196,11 +200,114 @@ class SettingsDialog(QDialog):
         self._update_worker.completed.connect(self._on_update_checked)
         self._update_worker.start()
 
+    def _can_install_updates(self) -> bool:
+        from app.services.update_installer import can_self_install
+
+        return can_self_install()
+
+    def _installable(self, result) -> bool:
+        """Whether this update can be installed rather than merely fetched."""
+        return bool(
+            result is not None and result.can_download and self._can_install_updates()
+        )
+
     def _on_update_checked(self, result) -> None:
         self.update_button.setEnabled(True)
         self.update_status.setText(result.message)
         self.update_download_button.setVisible(result.update_available)
         self._release_url = result.release_url
+        self._update_check = result
+        self.update_download_button.setText(
+            "Download and install…" if self._installable(result) else "Get the update…"
+        )
+
+    # -- downloading ---------------------------------------------------
+    def _start_update_download(self) -> None:
+        """Download the update, or fall back to the browser.
+
+        Falling back is the normal path for a portable build, a source
+        checkout, and any release published without an MSI attached. None of
+        those is a failure, so none of them says anything alarming -- the
+        button simply opens the page it always opened.
+        """
+        if not self._installable(self._update_check):
+            self._open_release_page()
+            return
+        if self._download_worker is not None and self._download_worker.isRunning():
+            return
+
+        proceed = QMessageBox.question(
+            self,
+            "Install the update?",
+            f"{APP_NAME} will download version {self._update_check.latest_version} "
+            "and start the installer.\n\nThe application will close so it can be "
+            "replaced. Your settings and processing history are kept.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if proceed is not QMessageBox.StandardButton.Yes:
+            return
+
+        from app.workers.update_download_worker import UpdateDownloadWorker
+
+        self.update_button.setEnabled(False)
+        self.update_download_button.setEnabled(False)
+        self.update_status.setText("Downloading…")
+
+        self._download_worker = UpdateDownloadWorker(self._update_check, self)
+        self._download_worker.progressed.connect(self._on_download_progress)
+        self._download_worker.completed.connect(self._on_download_finished)
+        self._download_worker.start()
+
+    def _on_download_progress(self, received: int, total: int) -> None:
+        if total > 0:
+            self.update_status.setText(f"Downloading… {int(received / total * 100)}%")
+        else:
+            self.update_status.setText(f"Downloading… {received // (1024 * 1024)} MB")
+
+    def _on_download_finished(self, outcome) -> None:
+        self.update_button.setEnabled(True)
+        self.update_download_button.setEnabled(True)
+        self._download_worker = None
+
+        if not outcome.ok:
+            # An empty error means cancellation, which needs no announcement.
+            if outcome.error:
+                self.update_status.setText(outcome.error)
+                QMessageBox.warning(self, APP_NAME, outcome.error)
+            else:
+                self.update_status.setText("Download cancelled.")
+            return
+
+        from app.services.update_installer import launch_installer
+
+        if not launch_installer(outcome.path):
+            self.update_status.setText("The installer could not be started.")
+            QMessageBox.warning(
+                self,
+                APP_NAME,
+                "The update was downloaded but the installer could not be "
+                f"started. You can run it yourself:\n\n{outcome.path}",
+            )
+            return
+
+        self.update_status.setText("Starting the installer…")
+        self._quit_for_update()
+
+    def _quit_for_update(self) -> None:
+        """Close the application so the installer can replace its files.
+
+        Windows Installer can ask a running program to close, but relying on
+        that leaves the user watching an unexplained prompt. Standing aside
+        deliberately is clearer, and it is what a person doing this by hand
+        would do.
+        """
+        from PySide6.QtWidgets import QApplication
+
+        self.accept()
+        application = QApplication.instance()
+        if application is not None:
+            application.quit()
 
     def _open_release_page(self) -> None:
         QDesktopServices.openUrl(QUrl(self._release_url))

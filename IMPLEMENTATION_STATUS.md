@@ -210,6 +210,37 @@ shortcuts, the install path, the EXE's Windows metadata, the README and the
 GitHub Release title. See [Naming](#naming) for the three things that
 deliberately kept their old names, and why. **[unit] [win-ci]**
 
+### One-click update (this phase)
+
+**Settings → Check for updates** now installs as well as checks. When a newer
+release carries an MSI, the button downloads it, verifies it, hands it to
+Windows Installer and closes the application so its files can be replaced.
+**[unit]**
+
+This is the only path in the product that fetches a file and then executes it,
+so three properties are enforced by tests rather than by care:
+
+| Property | Why | Verified by reverting it |
+|---|---|---|
+| The asset URL must be on this repository's own GitHub release path | It arrives inside a JSON response and ends up being run. A mangled or redirected feed must not be able to point the installer at another host. | Removing the prefix check fails 3 tests |
+| The download must match the SHA-256 published beside it, and is deleted if it does not | Catches a truncated or corrupted transfer before it reaches `msiexec`. A file that failed verification has no legitimate use, so it is not left on disk where somebody could run it by hand. | Removing the comparison fails 1 test |
+| Only the installed (onedir) build may self-install | The MSI upgrades an MSI installation. Against the portable EXE it would install a second copy beside it; against a source checkout it means nothing. | Making the check unconditional fails 1 test |
+
+It is **not** a defence against a compromised release — nothing at this layer
+could be, and a compromised release would compromise the manual download
+equally. The checksum defends against the failure that actually happens, which
+is a bad transfer.
+
+The install is deliberately interactive rather than silent: the user gets the
+same wizard as double-clicking the MSI, can read what is about to happen, and
+can cancel. A silent install starting on one click behind an unexplained
+elevation prompt is the wrong shape for replacing a running application.
+
+**Not verified here:** the elevation prompt, SmartScreen on an unsigned MSI,
+and the hand-off itself can only be seen on a real Windows desktop. CI proves
+the MSI upgrades in place and preserves user data; it does not click the
+button. **[untested]**
+
 ### The deterministic ATS report parser (previous phase)
 
 Real ATS exports are not free-form documents needing page-by-page

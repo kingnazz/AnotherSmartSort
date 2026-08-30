@@ -1361,6 +1361,187 @@ class TestCheckForUpdates:
             dialog.deleteLater()
 
 
+class TestInstallingAnUpdate:
+    """The Settings button that fetches a newer release and installs it.
+
+    The download itself is covered in tests/test_update_install.py. What
+    matters here is that the button does the right thing for the build it is
+    running in, and that nothing executes without the user agreeing to it.
+    """
+
+    def dialog(self, window):
+        from app.ui.settings_dialog import SettingsDialog
+
+        return SettingsDialog(window.settings, window.settings_store, window._tokens, window)
+
+    def offered(self, latest="1.0.1", *, with_installer=True):
+        from app.services.update_service import ASSET_URL_PREFIX, UpdateCheck
+
+        name = "SmartPDFSorter-Setup-1.0.1.msi"
+        return UpdateCheck(
+            current_version="1.0.0",
+            latest_version=latest,
+            release_url="https://example.com/r/1.0.1",
+            installer_url=f"{ASSET_URL_PREFIX}v1.0.1/{name}" if with_installer else "",
+            installer_name=name if with_installer else "",
+            checksums_url=f"{ASSET_URL_PREFIX}v1.0.1/SHA256SUMS.txt" if with_installer else "",
+        )
+
+    def test_an_installed_build_offers_to_install(self, qapp, window, monkeypatch) -> None:
+        dialog = self.dialog(window)
+        try:
+            monkeypatch.setattr(dialog, "_can_install_updates", lambda: True)
+            dialog._on_update_checked(self.offered())
+            assert dialog.update_download_button.text() == "Download and install…"
+        finally:
+            dialog.deleteLater()
+
+    def test_a_portable_build_still_just_opens_the_page(
+        self, qapp, window, monkeypatch
+    ) -> None:
+        """The MSI would install a second copy beside the portable EXE, so the
+        portable build keeps the behaviour it always had."""
+        opened: list[str] = []
+        monkeypatch.setattr(
+            "app.ui.settings_dialog.QDesktopServices.openUrl",
+            staticmethod(lambda url: opened.append(url.toString())),
+        )
+        dialog = self.dialog(window)
+        try:
+            monkeypatch.setattr(dialog, "_can_install_updates", lambda: False)
+            dialog._on_update_checked(self.offered())
+            assert dialog.update_download_button.text() == "Get the update…"
+
+            dialog._start_update_download()
+            assert opened == ["https://example.com/r/1.0.1"]
+        finally:
+            dialog.deleteLater()
+
+    def test_a_release_without_an_installer_falls_back_too(
+        self, qapp, window, monkeypatch
+    ) -> None:
+        opened: list[str] = []
+        monkeypatch.setattr(
+            "app.ui.settings_dialog.QDesktopServices.openUrl",
+            staticmethod(lambda url: opened.append(url.toString())),
+        )
+        dialog = self.dialog(window)
+        try:
+            monkeypatch.setattr(dialog, "_can_install_updates", lambda: True)
+            dialog._on_update_checked(self.offered(with_installer=False))
+            dialog._start_update_download()
+            assert opened == ["https://example.com/r/1.0.1"]
+        finally:
+            dialog.deleteLater()
+
+    def test_nothing_downloads_until_the_user_agrees(
+        self, qapp, window, monkeypatch
+    ) -> None:
+        """The confirmation is the last point where somebody can say no before
+        the application downloads a file and runs it with elevation."""
+        from PySide6.QtWidgets import QMessageBox
+
+        monkeypatch.setattr(
+            QMessageBox,
+            "question",
+            staticmethod(lambda *a, **k: QMessageBox.StandardButton.Cancel),
+        )
+        dialog = self.dialog(window)
+        try:
+            monkeypatch.setattr(dialog, "_can_install_updates", lambda: True)
+            dialog._on_update_checked(self.offered())
+            dialog._start_update_download()
+
+            assert dialog._download_worker is None, "a download started despite Cancel"
+            assert dialog.update_button.isEnabled()
+        finally:
+            dialog.deleteLater()
+
+    def test_a_failed_download_says_so_and_installs_nothing(
+        self, qapp, window, monkeypatch
+    ) -> None:
+        from app.services.update_installer import DownloadOutcome
+
+        launched: list = []
+        monkeypatch.setattr(
+            "app.services.update_installer.launch_installer",
+            lambda path: launched.append(path) or True,
+        )
+        dialog = self.dialog(window)
+        try:
+            dialog._on_download_finished(
+                DownloadOutcome(error="The downloaded update did not match its checksum.")
+            )
+            assert not launched, "a rejected download was handed to the installer"
+            assert "checksum" in dialog.update_status.text().lower()
+            assert dialog.update_button.isEnabled()
+        finally:
+            dialog.deleteLater()
+
+    def test_a_cancelled_download_is_not_reported_as_an_error(
+        self, qapp, window, monkeypatch
+    ) -> None:
+        from app.services.update_installer import DownloadOutcome
+
+        dialog = self.dialog(window)
+        try:
+            dialog._on_download_finished(DownloadOutcome())
+            assert dialog.update_status.text() == "Download cancelled."
+        finally:
+            dialog.deleteLater()
+
+    def test_a_verified_download_starts_the_installer_and_stands_aside(
+        self, qapp, window, monkeypatch, tmp_path: Path
+    ) -> None:
+        from app.services.update_installer import DownloadOutcome
+
+        msi = tmp_path / "SmartPDFSorter-Setup-1.0.1.msi"
+        msi.write_bytes(b"x")
+
+        launched: list = []
+        monkeypatch.setattr(
+            "app.services.update_installer.launch_installer",
+            lambda path: launched.append(path) or True,
+        )
+        dialog = self.dialog(window)
+        quit_called: list[bool] = []
+        monkeypatch.setattr(dialog, "_quit_for_update", lambda: quit_called.append(True))
+        try:
+            dialog._on_download_finished(DownloadOutcome(path=msi))
+            assert launched == [msi]
+            assert quit_called, "the app must close so the installer can replace it"
+        finally:
+            dialog.deleteLater()
+
+    def test_an_installer_that_will_not_start_tells_you_where_it_is(
+        self, qapp, window, monkeypatch, tmp_path: Path
+    ) -> None:
+        from app.services.update_installer import DownloadOutcome
+
+        msi = tmp_path / "SmartPDFSorter-Setup-1.0.1.msi"
+        msi.write_bytes(b"x")
+        monkeypatch.setattr(
+            "app.services.update_installer.launch_installer", lambda path: False
+        )
+        shown: list[str] = []
+        from PySide6.QtWidgets import QMessageBox
+
+        monkeypatch.setattr(
+            QMessageBox,
+            "warning",
+            staticmethod(lambda parent, title, text, *a, **k: shown.append(text)),
+        )
+        dialog = self.dialog(window)
+        quit_called: list[bool] = []
+        monkeypatch.setattr(dialog, "_quit_for_update", lambda: quit_called.append(True))
+        try:
+            dialog._on_download_finished(DownloadOutcome(path=msi))
+            assert not quit_called, "the app closed with no installer running"
+            assert str(msi) in shown[0]
+        finally:
+            dialog.deleteLater()
+
+
 class TestBranding:
     """The product name on every surface a user actually looks at.
 

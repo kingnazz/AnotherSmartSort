@@ -234,8 +234,26 @@ if ($p.ExitCode -ne 0) { throw "installation is not healthy" }
 
 ### Upgrading
 
-Just install the newer MSI. It replaces the old version in place — no need to
-uninstall first, and **your settings, history and output folder are untouched**.
+**Settings → Check for updates** does it for you. When a newer release exists,
+the button becomes **Download and install** — it fetches the MSI, checks it
+against the checksum published with the release, and starts the installer. The
+application closes so its files can be replaced, and reopens as the new version.
+
+Nothing is downloaded until you confirm, and nothing is run that failed its
+checksum: a download that does not match is deleted rather than kept.
+
+You can still do it by hand — install the newer MSI over the old one. Either
+way it replaces the old version in place, with no need to uninstall first, and
+**your settings, history and output folder are untouched**.
+
+Two cases fall back to simply opening the release page in your browser, which
+is what the button used to do for everyone:
+
+- the **portable** build, because the MSI would install a second copy beside it
+  rather than upgrading it
+- a release published without an MSI attached
+
+Running from a source checkout behaves the same way.
 
 ### Portable version
 
