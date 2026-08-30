@@ -826,13 +826,19 @@ Synthetic tests prove the pipeline behaves as designed; they say nothing about
 accuracy on a client's real applicant packets. When you have real PDFs:
 
 ```powershell
-# 1. Put the PDFs in qa\input\  (git-ignored — confidential documents never get committed)
-# 2. Bootstrap labels from the current predictions, then CORRECT THEM BY HAND
-python -m scripts.evaluate_corpus --make-template qa\input > qa\expected.json
+# 1. Point this variable at a private directory OUTSIDE the repository checkout.
+$env:AS_RESUME_SORTER_PRIVATE_QA_DIR = Read-Host "Private QA directory"
 
-# 3. Measure
-python -m scripts.evaluate_corpus --input qa\input --ground-truth qa\expected.json
+# 2. Bootstrap labels there, then CORRECT THEM BY HAND.
+python -m scripts.evaluate_corpus --make-template > "$env:AS_RESUME_SORTER_PRIVATE_QA_DIR\expected.json"
+
+# 3. Measure. The tool reads the PDFs and expected.json in place.
+python -m scripts.evaluate_corpus
 ```
+
+Never place real client PDFs or their labels anywhere inside the repository.
+`qa/expected.example.json` is synthetic and remains tracked only as a format
+example.
 
 The template comes out grouped by applicant, which is how a mixed batch reads
 when you are working through it:

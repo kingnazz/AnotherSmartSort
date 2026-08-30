@@ -32,4 +32,6 @@ packaging/__pycache__/
 # Real client PDFs for QA must never be committed
 qa/input/
 qa/output/
+qa/**/*.pdf
+qa/**/*.PDF
 qa/*.local.json
