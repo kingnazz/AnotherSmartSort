@@ -1233,8 +1233,16 @@ class TestSortAndSaveRunFolder:
     ) -> None:
         run = self.sort_and_save(qapp, window, samples_dir / sample_data.sample_a().filename)
 
+        # HistoryStore fails soft: a sqlite error logs a warning and returns
+        # an empty list rather than raising, so "nothing was recorded" and "the
+        # store was not usable at all" look identical from here. Separating
+        # them means a future failure names its own cause instead of implying
+        # the export forgot to write history.
+        assert window.history.is_available, (
+            "the history store was unavailable, so this says nothing about the export"
+        )
         recent = window.history.recent_jobs(limit=1)
-        assert recent, "the run was not recorded in history"
+        assert recent, "the export did not record the run in history"
         assert Path(recent[0].output_directory) == run
 
     def test_the_excel_index_is_written_into_the_run_folder(

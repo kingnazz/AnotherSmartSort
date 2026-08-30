@@ -167,6 +167,14 @@ def download_installer(
     partial = target.with_suffix(target.suffix + ".part")
     hasher = hashlib.sha256()
     written = 0
+    # Why these are flags rather than early returns: Windows refuses to delete
+    # a file while a handle to it is open, so cleaning up from inside the
+    # ``with`` below raises PermissionError instead of removing the partial
+    # download. POSIX allows it, so this only ever failed on Windows -- the
+    # reason the loop now decides and the cleanup happens after the file is
+    # closed.
+    stopped_by_caller = False
+    stopped_as_oversized = False
 
     try:
         _clear_previous_downloads(folder, keep=partial.name)
@@ -183,16 +191,14 @@ def download_installer(
             with partial.open("wb") as handle:
                 for chunk in response.iter_content(chunk_size=_CHUNK_BYTES):
                     if should_cancel is not None and should_cancel():
-                        partial.unlink(missing_ok=True)
-                        return DownloadOutcome(error="")
+                        stopped_by_caller = True
+                        break
                     if not chunk:
                         continue
                     written += len(chunk)
                     if written > _MAX_INSTALLER_BYTES:
-                        partial.unlink(missing_ok=True)
-                        return DownloadOutcome(
-                            error="The download was unexpectedly large and was stopped."
-                        )
+                        stopped_as_oversized = True
+                        break
                     hasher.update(chunk)
                     handle.write(chunk)
                     if on_progress is not None:
@@ -214,6 +220,14 @@ def download_installer(
         return DownloadOutcome(
             error=f"The update could not be saved: {exc.strerror or exc}"
         )
+
+    # The file is closed now, so it can actually be removed on Windows too.
+    if stopped_by_caller:
+        partial.unlink(missing_ok=True)
+        return DownloadOutcome(error="")
+    if stopped_as_oversized:
+        partial.unlink(missing_ok=True)
+        return DownloadOutcome(error="The download was unexpectedly large and was stopped.")
 
     if hasher.hexdigest() != digest:
         # Deleted rather than kept: a file that failed verification has no
