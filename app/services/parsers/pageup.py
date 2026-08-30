@@ -44,13 +44,14 @@ the reviewer is told to check beats one silently exported under the wrong name.
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass, field
 
-from app.models.candidate import Candidate, normalize_person_name
+from app.models.candidate import Candidate, CREDENTIALS, normalize_person_name
 from app.models.enums import SeparatorPolicy, SeparatorState
 from app.models.page import PageAnalysis
 from app.profiles.base import OTHER, DocumentProfile
-from app.profiles.recruiting import APPLICATION_REPORT
+from app.profiles.recruiting import APPLICATION_REPORT, RESUME
 from app.services.parsers.attachments import AttachmentDetector
 from app.services.parsers.base import ParseOutcome, ParserMatch, assign_page
 from app.services.text_features import PageFeatures, flatten
@@ -70,6 +71,40 @@ APPLICATION_END_MARKER = "total score"
 
 #: How far into a page to look for the application-form heading and name.
 _HEADER_LINES = 10
+#: A resume identity belongs in its compact header, before body sections begin.
+_RESUME_HEADER_LINES = 8
+#: Minimum evidence for an ordered roster identity to open the next resume.
+_STRONG_RESUME_HEADER_SCORE = 0.85
+
+_RESUME_SECTION_HEADINGS = frozenset(
+    {
+        "career history",
+        "core competencies",
+        "education",
+        "employment",
+        "employment history",
+        "experience",
+        "professional experience",
+        "professional references",
+        "references",
+        "skills",
+        "work experience",
+    }
+)
+_HEADER_PROSE_TOKENS = frozenset(
+    {
+        "and",
+        "director",
+        "for",
+        "manager",
+        "of",
+        "reference",
+        "references",
+        "the",
+        "with",
+        "worked",
+    }
+)
 
 #: Evidence a single page needs before it counts as clearly being one declared
 #: type rather than another. Used only to decide whether an *unsplit* region
@@ -95,7 +130,8 @@ def roster_key(name: str) -> str:
     losing anything the user would want to see on their file.
     """
     text = _PARENTHETICAL_RE.sub(" ", name or "")
-    normalized = normalize_person_name(text)
+    text = re.sub(r"[-‐‑‒–—]", " ", text)
+    normalized = _fold_identity(normalize_person_name(text))
     parts = [part for part in normalized.split() if part not in _TITLES]
     return " ".join(parts)
 
@@ -106,10 +142,29 @@ class RosterEntry:
 
     display_name: str
     key: str
+    given_names: frozenset[str] = field(default_factory=frozenset)
+    surname: str = ""
 
     @classmethod
     def build(cls, display_name: str) -> "RosterEntry":
-        return cls(display_name=display_name.strip(), key=roster_key(display_name))
+        key = roster_key(display_name)
+        parts = key.split()
+        preferred: set[str] = set()
+        for parenthetical in re.findall(r"\(([^)]*)\)", display_name or ""):
+            preferred.update(_identity_tokens(parenthetical))
+        given_names = set(parts[:-1]) | preferred
+        return cls(
+            display_name=display_name.strip(),
+            key=key,
+            given_names=frozenset(given_names),
+            surname=(
+                parts[-1]
+                if len(parts) >= 2
+                else parts[0]
+                if parts and preferred
+                else ""
+            ),
+        )
 
 
 @dataclass
@@ -194,8 +249,13 @@ class PageUpBulkCompileParser:
             )
 
         self._mark_cover_page(pages, features_list, cover, separator_policy)
-        segments = self._walk(pages, features_list, cover, outcome)
-        segments = self._split_attachments(segments, features_list, cover, outcome)
+        if self._is_resume_only(cover, features_list):
+            outcome.metadata["mode"] = "resume_only"
+            segments = self._walk_resume_only(pages, features_list, cover, outcome)
+        else:
+            outcome.metadata["mode"] = "application_forms"
+            segments = self._walk(pages, features_list, cover, outcome)
+            segments = self._split_attachments(segments, features_list, cover, outcome)
         self._apply(pages, features_list, segments, cover, outcome)
 
         found = len({segment.candidate_key for segment in segments if segment.candidate_key})
@@ -240,6 +300,12 @@ class PageUpBulkCompileParser:
         match = _COUNT_RE.search(features.text)
         if match:
             cover.declared_count = int(match.group(1))
+            if len(cover.roster) > cover.declared_count:
+                # Some PageUp cover templates place generic footer lines
+                # between the roster and the printed count. The declared count
+                # is authoritative, and the actual roster is the ordered block
+                # immediately following its heading.
+                cover.roster = cover.roster[: cover.declared_count]
         return cover
 
     def _declared_types(self, lines: list[str]) -> list[str]:
@@ -287,6 +353,169 @@ class PageUpBulkCompileParser:
     # ------------------------------------------------------------------
     # Structure walk
     # ------------------------------------------------------------------
+    def _is_resume_only(
+        self, cover: BulkCover, features_list: list[PageFeatures]
+    ) -> bool:
+        """Whether the cover declares the roster-ordered resume-only shape."""
+        if cover.declared_types != [RESUME] or not cover.roster:
+            return False
+        return not any(
+            APPLICATION_FORM_MARKER in features.flat
+            for index, features in enumerate(features_list)
+            if index != cover.page_index
+        )
+
+    def _walk_resume_only(
+        self,
+        pages: list[PageAnalysis],
+        features_list: list[PageFeatures],
+        cover: BulkCover,
+        outcome: ParseOutcome,
+    ) -> list["_Segment"]:
+        """Split roster-ordered resumes using only the next expected identity.
+
+        A roster member mentioned in an earlier resume is not a boundary. The
+        expected identity must occur in a compact first-page header, before a
+        body section, with resume/contact layout support. If that evidence is
+        absent, the open resume keeps the remaining pages and goes to review;
+        no page is silently assigned across an invented split.
+        """
+        content_indexes = [
+            index
+            for index, page in enumerate(pages)
+            if index != cover.page_index and not page.error
+        ]
+        if not content_indexes:
+            return []
+
+        first_content = content_indexes[0]
+        last_content = content_indexes[-1]
+        first_entry = cover.roster[0]
+        first_start = self._find_resume_start(
+            first_entry, features_list, first_content, last_content
+        )
+
+        if first_start is None:
+            segment = _Segment(
+                kind="attachment",
+                document_type=RESUME,
+                display_name="",
+                candidate_key="",
+                first_page=first_content,
+                last_page=last_content,
+            )
+            self._flag_missing_resume_boundary(segment, outcome)
+            return [segment]
+
+        segments: list[_Segment] = []
+        if first_start > first_content:
+            leading = _Segment(
+                kind="attachment",
+                document_type=RESUME,
+                display_name="",
+                candidate_key="",
+                first_page=first_content,
+                last_page=first_start - 1,
+            )
+            self._flag_missing_resume_boundary(leading, outcome)
+            segments.append(leading)
+
+        current = _Segment(
+            kind="attachment",
+            document_type=RESUME,
+            display_name=first_entry.display_name,
+            candidate_key=first_entry.key,
+            first_page=first_start,
+            last_page=last_content,
+        )
+        segments.append(current)
+
+        for expected in cover.roster[1:]:
+            boundary = self._find_resume_start(
+                expected,
+                features_list,
+                current.first_page + 1,
+                last_content,
+            )
+            if boundary is None:
+                current.last_page = last_content
+                self._flag_missing_resume_boundary(current, outcome)
+                break
+
+            current.last_page = boundary - 1
+            current = _Segment(
+                kind="attachment",
+                document_type=RESUME,
+                display_name=expected.display_name,
+                candidate_key=expected.key,
+                first_page=boundary,
+                last_page=last_content,
+            )
+            segments.append(current)
+
+        return segments
+
+    def _find_resume_start(
+        self,
+        expected: RosterEntry,
+        features_list: list[PageFeatures],
+        first_page: int,
+        last_page: int,
+    ) -> int | None:
+        """Find the first strong header for exactly one expected roster entry."""
+        for index in range(max(first_page, 0), min(last_page + 1, len(features_list))):
+            if self._resume_header_score(expected, features_list[index]) >= (
+                _STRONG_RESUME_HEADER_SCORE
+            ):
+                return index
+        return None
+
+    def _resume_header_score(
+        self, expected: RosterEntry, features: PageFeatures
+    ) -> float:
+        """Strength of the expected identity as a resume first-page header."""
+        if not expected.surname or not expected.given_names:
+            return 0.0
+        if features.page_marker and features.page_marker[0] > 1:
+            return 0.0
+
+        resume_layout = self._has_resume_first_page_layout(features)
+        section_seen = False
+        best = 0.0
+        for position, line in enumerate(features.first_lines[:_RESUME_HEADER_LINES]):
+            normalized_line = flatten(line).strip().rstrip(":")
+            if normalized_line in _RESUME_SECTION_HEADINGS:
+                section_seen = True
+                continue
+            if section_seen:
+                continue
+
+            identity = _header_identity_strength(expected, line)
+            if identity <= 0:
+                continue
+            positional = 0.20 if position == 0 else 0.12 if position <= 2 else 0.06
+            contact = 0.12 if features.has_contact_block else 0.0
+            layout = 0.12 if resume_layout else 0.0
+            best = max(best, identity + positional + contact + layout)
+        return min(best, 1.0)
+
+    def _has_resume_first_page_layout(self, features: PageFeatures) -> bool:
+        headings = {flatten(heading).strip().rstrip(":") for heading in features.heading_lines}
+        has_resume_heading = bool(headings & (_RESUME_SECTION_HEADINGS - {"references"}))
+        return bool(
+            features.has_contact_block
+            or has_resume_heading
+            or (features.bullet_lines and features.date_range_count)
+            or (features.date_range_count >= 2 and features.line_count >= 12)
+        )
+
+    def _flag_missing_resume_boundary(
+        self, segment: "_Segment", outcome: ParseOutcome
+    ) -> None:
+        reason = "Could not confidently locate the next applicant Resume boundary."
+        segment.flag(reason)
+        outcome.warn(reason)
+
     def _walk(
         self,
         pages: list[PageAnalysis],
@@ -385,7 +614,7 @@ class PageUpBulkCompileParser:
                 break
             key = roster_key(line)
             if key and len(key.split()) >= 2:
-                return RosterEntry(display_name=line.strip(), key=key)
+                return RosterEntry.build(line)
         return None
 
     # ------------------------------------------------------------------
@@ -609,6 +838,8 @@ class PageUpBulkCompileParser:
                     parser_name=self.name,
                     reason=(
                         f"{segment.display_name}'s {segment.document_type.lower()}"
+                        if index == segment.first_page and segment.display_name
+                        else "resume-only bulk section needs applicant review"
                         if index == segment.first_page
                         else "continues open section"
                     ),
@@ -688,6 +919,67 @@ class _Boundary:
 
     document_type: str | None = None
     review_reason: str = ""
+
+
+def _fold_identity(text: str) -> str:
+    """Case/diacritic/punctuation-insensitive text used only for identity matching."""
+    decomposed = unicodedata.normalize("NFKD", text or "")
+    without_marks = "".join(
+        character
+        for character in decomposed
+        if not unicodedata.combining(character)
+    )
+    separated = re.sub(r"[-‐‑‒–—]", " ", without_marks.casefold())
+    cleaned = "".join(
+        character
+        for character in separated
+        if character.isalnum() or character.isspace()
+    )
+    return " ".join(cleaned.split())
+
+
+def _identity_tokens(text: str) -> tuple[str, ...]:
+    """Identity words with honorifics and credential suffixes removed."""
+    credentials = {_fold_identity(value).replace(" ", "") for value in CREDENTIALS}
+    return tuple(
+        token
+        for token in _fold_identity(text).split()
+        if token not in _TITLES and token.replace(" ", "") not in credentials
+    )
+
+
+def _header_identity_strength(entry: RosterEntry, line: str) -> float:
+    """Match a compact header line, rejecting prose that merely names somebody."""
+    # Multi-column PDFs sometimes extract ``Given email@example.test Surname``
+    # as one line. Remove the contact token in place rather than truncating at
+    # ``@``, which would throw away whichever name column was extracted later.
+    without_email = re.sub(r"\S+@\S+", " ", line or "")
+    header = re.split(r"\s+[|•●▪]\s+", without_email, maxsplit=1)[0]
+    tokens = list(_identity_tokens(header))
+    if not tokens or len(tokens) > 8:
+        return 0.0
+    if entry.surname not in tokens:
+        return 0.0
+
+    known = set(entry.key.split()) | set(entry.given_names)
+    extras = [token for token in tokens if token not in known]
+    if set(extras) & _HEADER_PROSE_TOKENS:
+        return 0.0
+
+    given_match = any(given in tokens for given in entry.given_names)
+    if not given_match:
+        # Strict fallback for a resume that uses an undeclared preferred name:
+        # surname plus one compact header line. Its lower score means this can
+        # only become a boundary at the top of a page with both contact and
+        # resume-layout evidence.
+        return 0.42 if len(tokens) <= 4 else 0.0
+    if not extras:
+        return 0.60
+    if len(extras) <= 3:
+        # A resume may spell out a middle name where the roster used an
+        # initial, or carry a credential suffix not in the common list.
+        return 0.54
+    return 0.0
 
 
 def _join(names: list[str]) -> str:
