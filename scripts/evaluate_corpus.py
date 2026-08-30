@@ -4,9 +4,9 @@ Synthetic tests prove the pipeline behaves as designed. They cannot tell you how
 it performs on a client's real applicant packets — only labelled real documents
 can do that. This is the harness for that measurement.
 
-    python -m scripts.evaluate_corpus --input qa/input --ground-truth qa/expected.json
-    python -m scripts.evaluate_corpus --input qa/input --ground-truth qa/expected.json --json report.json
-    python -m scripts.evaluate_corpus --make-template qa/input > qa/expected.json
+    AS_RESUME_SORTER_PRIVATE_QA_DIR=/private/path python -m scripts.evaluate_corpus
+    AS_RESUME_SORTER_PRIVATE_QA_DIR=/private/path python -m scripts.evaluate_corpus --json report.json
+    AS_RESUME_SORTER_PRIVATE_QA_DIR=/private/path python -m scripts.evaluate_corpus --make-template
 
 Ground truth format (see qa/expected.example.json). Label by applicant, which
 is how a mixed batch reads to a person working through it::
@@ -32,14 +32,16 @@ The older flat form -- a list of documents each carrying a ``candidate`` name
 and ``start_page``/``end_page`` -- still loads, so existing label files keep
 working.
 
-Client PDFs are confidential: ``qa/input/`` is git-ignored, and this script
-never copies document text into its report.
+Client PDFs and labels must live outside the repository. Set
+``AS_RESUME_SORTER_PRIVATE_QA_DIR`` to that private directory; this script reads
+the files in place and never copies document text into its report.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from dataclasses import dataclass, field
@@ -661,13 +663,24 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--input", help="Folder of PDFs to evaluate.")
-    parser.add_argument("--ground-truth", help="JSON file of expected results.")
+    parser.add_argument(
+        "--input",
+        help="Folder of PDFs to evaluate (defaults to AS_RESUME_SORTER_PRIVATE_QA_DIR).",
+    )
+    parser.add_argument(
+        "--ground-truth",
+        help="JSON labels (defaults to expected.json in the private QA directory).",
+    )
     parser.add_argument("--json", help="Also write the full report to this JSON file.")
     parser.add_argument(
         "--make-template",
+        nargs="?",
+        const="",
         metavar="INPUT_DIR",
-        help="Analyse a folder and print an editable ground-truth template.",
+        help=(
+            "Analyse a folder and print a template "
+            "(defaults to the private QA directory)."
+        ),
     )
     parser.add_argument(
         "--provider",
@@ -680,19 +693,33 @@ def main(argv: list[str] | None = None) -> int:
     settings = AppSettings()
     settings.provider = arguments.provider
 
-    if arguments.make_template:
-        template = make_template(Path(arguments.make_template), settings)
+    private_qa_dir = os.environ.get("AS_RESUME_SORTER_PRIVATE_QA_DIR")
+
+    if arguments.make_template is not None:
+        template_input = arguments.make_template or private_qa_dir
+        if not template_input:
+            parser.error(
+                "--make-template needs INPUT_DIR or AS_RESUME_SORTER_PRIVATE_QA_DIR"
+            )
+        template = make_template(Path(template_input), settings)
         print(json.dumps(template, indent=2))
         return 0
 
-    if not arguments.input or not arguments.ground_truth:
-        parser.error("--input and --ground-truth are both required")
+    input_value = arguments.input or private_qa_dir
+    ground_truth_value = arguments.ground_truth
+    if not ground_truth_value and private_qa_dir:
+        ground_truth_value = str(Path(private_qa_dir) / "expected.json")
+    if not input_value or not ground_truth_value:
+        parser.error(
+            "--input and --ground-truth are required unless "
+            "AS_RESUME_SORTER_PRIVATE_QA_DIR is set"
+        )
 
-    input_dir = Path(arguments.input)
+    input_dir = Path(input_value)
     if not input_dir.is_dir():
         raise SystemExit(f"Input folder not found: {input_dir}")
 
-    ground_truth, expected_packets = load_ground_truth(Path(arguments.ground_truth))
+    ground_truth, expected_packets = load_ground_truth(Path(ground_truth_value))
     print(f"Evaluating {input_dir} against {len(ground_truth)} labelled file(s)…")
 
     report = evaluate(input_dir, ground_truth, settings, expected_packets)
