@@ -133,6 +133,41 @@ class PageUpBatch:
         return build_pdf(document, Path(output_dir) / self.filename)
 
 
+@dataclass
+class PageUpResumeOnlyApplicant:
+    """Expected resume extent for an invented resume-only roster member."""
+
+    display_name: str
+    resume_first: int
+    resume_last: int
+
+    @property
+    def resume_pages(self) -> list[int]:
+        return list(range(self.resume_first, self.resume_last + 1))
+
+
+@dataclass
+class PageUpResumeOnlyBatch:
+    """A wholly synthetic PageUp cover followed only by roster-ordered resumes."""
+
+    filename: str
+    pages: list[SamplePage]
+    applicants: list[PageUpResumeOnlyApplicant] = field(default_factory=list)
+
+    @property
+    def page_count(self) -> int:
+        return len(self.pages)
+
+    def write(self, output_dir: str | Path) -> Path:
+        document = SampleDocument(
+            filename=self.filename,
+            description=f"{self.page_count}-page synthetic resume-only bulk compile",
+            pages=self.pages,
+            expected_candidates=[applicant.display_name for applicant in self.applicants],
+        )
+        return build_pdf(document, Path(output_dir) / self.filename)
+
+
 # --------------------------------------------------------------------------
 # Page builders
 # --------------------------------------------------------------------------
@@ -300,6 +335,103 @@ def resume_attachment_pages(
         pages.append(body)
 
     return [SamplePage(lines=lines) for lines in pages]
+
+
+def resume_only_pages(
+    header_name: str, total: int, *, include_contact: bool = True
+) -> list[SamplePage]:
+    """Invented resume pages for the cover-plus-resumes PageUp shape."""
+    first = [header_name]
+    if include_contact:
+        first += [
+            "invented.candidate@example.com | (555) 010-4400",
+            "Northwind, OR",
+        ]
+    first += [
+        "",
+        "PROFESSIONAL SUMMARY",
+        *paragraph(
+            "Program coordinator experienced in community partnerships, "
+            "public workshops, scheduling, and accessible service delivery."
+        ),
+        "",
+        "PROFESSIONAL EXPERIENCE",
+        "Program Coordinator",
+        "Northwind Community Lab",
+        "2021 - Present",
+        bullet("Coordinated an invented regional workshop programme."),
+    ]
+    pages = [SamplePage(lines=first)]
+
+    for index in range(2, total + 1):
+        if index == total:
+            lines = [
+                "EDUCATION",
+                "Bachelor of Arts, Public Administration",
+                "Northwind College - 2020",
+                "",
+                "SKILLS",
+                bullet("Programme planning and stakeholder communication"),
+            ]
+        else:
+            lines = [
+                "PROFESSIONAL EXPERIENCE (CONTINUED)",
+                "Community Liaison",
+                "Cedar Valley Learning Cooperative",
+                "2017 - 2021",
+                bullet("Maintained schedules and prepared public information."),
+            ]
+        pages.append(SamplePage(lines=lines))
+    return pages
+
+
+def build_resume_only_compile(
+    *,
+    filename: str = "PageUp_Resume_Only.pdf",
+    roster: tuple[str, ...] = (
+        "Avery North",
+        "Bailey Orchard",
+        "Cameron Pine",
+        "Devon Quill",
+    ),
+    lengths: tuple[int, ...] = (1, 2, 4, 7),
+    header_names: tuple[str, ...] | None = None,
+    contact_flags: tuple[bool, ...] | None = None,
+) -> PageUpResumeOnlyBatch:
+    """Build a roster-ordered resume-only compile with no application forms."""
+    if len(roster) != len(lengths):
+        raise ValueError("roster and lengths must have the same size")
+    headers = header_names or roster
+    contacts = contact_flags or tuple(True for _ in roster)
+    if len(headers) != len(roster) or len(contacts) != len(roster):
+        raise ValueError("header options must match the roster size")
+
+    pages: list[SamplePage] = [cover_page(roster, (RESUME,))]
+    applicants: list[PageUpResumeOnlyApplicant] = []
+    for display_name, header_name, length, include_contact in zip(
+        roster, headers, lengths, contacts
+    ):
+        resume_first = len(pages) + 1
+        pages.extend(
+            resume_only_pages(
+                header_name,
+                length,
+                include_contact=include_contact,
+            )
+        )
+        applicants.append(
+            PageUpResumeOnlyApplicant(
+                display_name=display_name,
+                resume_first=resume_first,
+                resume_last=len(pages),
+            )
+        )
+
+    return PageUpResumeOnlyBatch(
+        filename=filename,
+        pages=pages,
+        applicants=applicants,
+    )
 
 
 # --------------------------------------------------------------------------
