@@ -112,11 +112,11 @@ def run_until_idle(qapp, window, timeout: float = 180.0) -> None:
 
     "Idle" deliberately does not mean "the worker stopped running". A
     worker's completion signal is emitted on its own thread and delivered to
-    the window on the *next* ``processEvents()``, and handling it can start
-    the next stage -- Sort & Save chains an export straight onto the end of
-    analysis. Returning the moment ``isRunning()`` goes false would hand the
-    caller a window that is about to become busy again, so idleness is only
-    believed once it survives a drain.
+    the window later, and handling it can start the next stage -- Sort & Save
+    chains an export straight onto the end of analysis. The completion slots
+    clear their worker references only after applying their results (including
+    recording export history), so those references are the deterministic
+    completion condition rather than ``QThread.isRunning()``.
 
     Running out of time raises. This used to return quietly, which meant a
     caller that had merely waited too long went on to assert against a
@@ -140,7 +140,11 @@ def run_until_idle(qapp, window, timeout: float = 180.0) -> None:
         # next stage -- and only then trust that there is nothing left.
         for _ in range(3):
             qapp.processEvents()
-        if not window._busy:
+        if (
+            window._analysis_worker is None
+            and window._export_worker is None
+            and not window._busy
+        ):
             return
 
     running = "analysis" if window._analysis_worker else "export"
