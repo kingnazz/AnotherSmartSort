@@ -153,7 +153,7 @@ Anything a known format already settled is never sent for a second opinion.
 
 ## Installing
 
-Double-click **SmartPDFSorter-Setup-1.0.1.msi** and follow the prompts. Smart PDF
+Double-click **SmartPDFSorter-Setup-1.0.2.msi** and follow the prompts. Smart PDF
 Sorter then appears in the Start Menu and in Windows Settings → Apps, like any
 other program.
 
@@ -169,26 +169,26 @@ The MSI installs silently, so it works with Intune, an RMM, Group Policy or a
 PowerShell script:
 
 ```powershell
-msiexec /i SmartPDFSorter-Setup-1.0.1.msi /qn /norestart
+msiexec /i SmartPDFSorter-Setup-1.0.2.msi /qn /norestart
 ```
 
 Add a desktop shortcut for everyone (off by default so deployments don't clutter
 desktops):
 
 ```powershell
-msiexec /i SmartPDFSorter-Setup-1.0.1.msi /qn /norestart INSTALLDESKTOPSHORTCUT=1
+msiexec /i SmartPDFSorter-Setup-1.0.2.msi /qn /norestart INSTALLDESKTOPSHORTCUT=1
 ```
 
 Install somewhere else:
 
 ```powershell
-msiexec /i SmartPDFSorter-Setup-1.0.1.msi /qn /norestart INSTALLFOLDER="D:\Apps\AS Resume Sorter"
+msiexec /i SmartPDFSorter-Setup-1.0.2.msi /qn /norestart INSTALLFOLDER="D:\Apps\AS Resume Sorter"
 ```
 
 Uninstall silently:
 
 ```powershell
-msiexec /x SmartPDFSorter-Setup-1.0.1.msi /qn /norestart
+msiexec /x SmartPDFSorter-Setup-1.0.2.msi /qn /norestart
 ```
 
 `msiexec` returns 0 on success, 3010 when a restart is pending, and 1603 on
@@ -239,7 +239,7 @@ uninstall first, and **your settings, history and output folder are untouched**.
 
 ### Portable version
 
-If you can't install software, use **SmartPDFSorter-Portable-1.0.1.exe**. It runs
+If you can't install software, use **SmartPDFSorter-Portable-1.0.2.exe**. It runs
 from anywhere, including a USB stick. One difference: the portable build does not
 carry the OCR engine, so scanned PDFs are only readable if the computer already
 has Tesseract, or if you put the installed version's `ocr` folder next to the EXE.
@@ -706,8 +706,8 @@ Result:
 
 ```
 artifacts\
-    SmartPDFSorter-Setup-1.0.1.msi        <- primary: install this on client PCs
-    SmartPDFSorter-Portable-1.0.1.exe     <- secondary: no installation
+    SmartPDFSorter-Setup-1.0.2.msi        <- primary: install this on client PCs
+    SmartPDFSorter-Portable-1.0.2.exe     <- secondary: no installation
     SHA256SUMS.txt
 ```
 
