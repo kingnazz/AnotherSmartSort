@@ -6,11 +6,11 @@
 
       wix build installer\Package.wxs `
           -arch x64 `
-          -d Version=1.0.1 `
+          -d Version=1.0.2 `
           -d HarvestPath=dist\SmartPDFSorter `
           -d RepoRoot=. `
           -ext WixToolset.UI.wixext `
-          -o artifacts\SmartPDFSorter-Setup-1.0.1.msi
+          -o artifacts\SmartPDFSorter-Setup-1.0.2.msi
 
   scripts/build_windows.ps1 does this for you and passes the version from
   app/version.py, which is the single source of truth.
