@@ -4,8 +4,8 @@ Everything downstream reads from here -- the Python package, the About dialog,
 PyInstaller's Windows metadata, the MSI ProductVersion, artifact filenames and
 the CI workflows. Change the version in this one file and nowhere else.
 
-    python -m app.version          # prints 1.0.2
-    python -m app.version --windows  # prints 1.0.2.0
+    python -m app.version          # prints 1.0.3
+    python -m app.version --windows  # prints 1.0.3.0
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import re
 import sys
 
 #: The application version. This is the only place it is written down.
-__version__ = "1.0.2"
+__version__ = "1.0.3"
 
 _SEMVER_RE = re.compile(
     r"^(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)(?:[-+](?P<label>[0-9A-Za-z.\-]+))?$"
@@ -22,7 +22,7 @@ _SEMVER_RE = re.compile(
 
 
 def version_tuple() -> tuple[int, int, int]:
-    """``1.0.2`` -> ``(1, 0, 2)`` -- the numeric parts, label ignored."""
+    """``1.0.3`` -> ``(1, 0, 3)`` -- the numeric parts, label ignored."""
     match = _SEMVER_RE.match(__version__)
     if not match:  # pragma: no cover - guarded by tests
         raise ValueError(f"Malformed application version: {__version__!r}")
@@ -34,7 +34,7 @@ def version_tuple() -> tuple[int, int, int]:
 
 
 def windows_version(build: int = 0) -> str:
-    """``1.0.2`` -> ``1.0.2.0`` -- the four-part form Windows requires.
+    """``1.0.3`` -> ``1.0.3.0`` -- the four-part form Windows requires.
 
     Windows Installer compares only the first three fields for major upgrades,
     so the fourth is a build counter and must not carry meaning.

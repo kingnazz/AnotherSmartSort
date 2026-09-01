@@ -1,7 +1,7 @@
 # Implementation Status
 
-**Version:** 1.0.2
-**Last updated:** 2026-08-31
+**Version:** 1.0.3
+**Last updated:** 2026-09-01
 **Product name:** AS Resume Sorter (renamed from Smart PDF Sorter — see
 [Naming](#naming))
 **Phase:** final polish — complete. One of the three parsers is verified against
