@@ -166,8 +166,44 @@ def open_path_in_file_manager(path: str | Path) -> bool:
         return False
 
 
+def start_detached(command: Sequence[str]) -> bool:
+    """Start a program, do not wait for it, and let it outlive this process.
+
+    The one caller is the updater handing a downloaded MSI to Windows
+    Installer, and both halves of that sentence matter. The installer replaces
+    files this application is running from, so the application has to be able
+    to exit while it works -- which means not waiting on it, and not dying with
+    it.
+
+    Deliberately *not* given the hidden-window options the rest of this module
+    applies. Those exist to stop a console flashing behind the user's back
+    during OCR; this is the opposite situation. The user clicked a button that
+    said it would install an update, and the installer's window is the thing
+    they are expecting to see. Hiding it would leave an elevation prompt with
+    no visible application behind it, which is exactly what malware looks like.
+    """
+    if not command:
+        return False
+    executable = command[0]
+    try:
+        subprocess.Popen(  # noqa: S603 - fixed argv, never a shell
+            list(command),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+        )
+    except (OSError, ValueError) as exc:
+        log_event(logger, "external_process.detached_failed", executable=executable)
+        logger.warning("Could not start %s: %s", executable, exc)
+        return False
+
+    log_event(logger, "external_process.detached", executable=executable)
+    return True
+
+
 __all__ = [
     "run_hidden",
+    "start_detached",
     "hidden_process_options",
     "open_path_in_file_manager",
     "is_windows",

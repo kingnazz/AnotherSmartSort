@@ -49,6 +49,61 @@ RELEASES_PAGE_URL = f"https://github.com/{RELEASE_OWNER}/{RELEASE_REPO}/releases
 #: Short enough that a hung network never makes the dialog feel broken.
 DEFAULT_TIMEOUT_SECONDS = 10
 
+#: Every release asset GitHub serves for this repository begins with this.
+#:
+#: The application downloads and *runs* the MSI it finds here, which makes the
+#: download URL the most security-relevant string in this module. It arrives
+#: inside a JSON response, so it is treated as data to be checked rather than
+#: an address to be trusted: anything not under this prefix is discarded and
+#: the user is sent to the release page instead. That does not defend against
+#: a compromised release -- nothing here could -- but it does mean a mangled
+#: or redirected feed cannot point the installer at an arbitrary host.
+ASSET_URL_PREFIX = (
+    f"https://github.com/{RELEASE_OWNER}/{RELEASE_REPO}/releases/download/"
+)
+
+#: The installer asset, by name. The MSI is the only artifact that can upgrade
+#: an existing installation; the portable EXE deliberately installs nothing.
+_INSTALLER_RE = re.compile(r"^SmartPDFSorter-Setup-.*\.msi$", re.IGNORECASE)
+_CHECKSUMS_NAME = "SHA256SUMS.txt"
+
+
+def _asset_url(asset: object) -> str:
+    """A release asset's download URL, or ``""`` if it is not one we trust."""
+    if not isinstance(asset, dict):
+        return ""
+    url = str(asset.get("browser_download_url") or "")
+    return url if url.startswith(ASSET_URL_PREFIX) else ""
+
+
+def find_release_assets(payload: dict) -> tuple[str, str, int, str]:
+    """Pick the MSI and its checksum file out of a release payload.
+
+    Returns ``(installer_url, installer_name, size, checksums_url)``, with
+    empty strings when the release carries no usable installer. A release
+    without one is perfectly normal -- the caller falls back to opening the
+    release page, exactly as before this existed.
+    """
+    assets = payload.get("assets")
+    if not isinstance(assets, list):
+        return ("", "", 0, "")
+
+    installer_url = installer_name = checksums_url = ""
+    size = 0
+    for asset in assets:
+        url = _asset_url(asset)
+        if not url:
+            continue
+        name = str(asset.get("name") or "")
+        if not installer_url and _INSTALLER_RE.match(name):
+            installer_url, installer_name = url, name
+            raw_size = asset.get("size")
+            size = int(raw_size) if isinstance(raw_size, int) and raw_size > 0 else 0
+        elif not checksums_url and name == _CHECKSUMS_NAME:
+            checksums_url = url
+
+    return (installer_url, installer_name, size, checksums_url)
+
 _VERSION_RE = re.compile(
     r"^\s*v?(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)(?:[-+](?P<label>[0-9A-Za-z.\-]+))?\s*$"
 )
@@ -83,6 +138,17 @@ class UpdateCheck:
     latest_version: str = ""
     #: Where to go and get it.
     release_url: str = RELEASES_PAGE_URL
+    #: Direct download for the MSI attached to that release, when there is one
+    #: and its URL is on the expected GitHub release path. Empty otherwise --
+    #: which is not an error, only a release the application cannot install
+    #: for itself.
+    installer_url: str = ""
+    #: The MSI's filename, so a download can be saved under its real name.
+    installer_name: str = ""
+    #: Its size in bytes, for a progress bar. Zero when GitHub did not say.
+    installer_size: int = 0
+    #: The SHA256SUMS.txt published beside it, used to verify the download.
+    checksums_url: str = ""
     #: Set when the check could not be completed. Written for a user to read.
     error: str = ""
 
@@ -101,6 +167,14 @@ class UpdateCheck:
         if latest is None or current is None:
             return False
         return latest > current
+
+    @property
+    def can_download(self) -> bool:
+        """Whether this update can be fetched without sending the user to a
+        browser. A release with no MSI attached is normal -- a source-only tag,
+        or a build that failed to upload -- and falls back to the release page.
+        """
+        return self.update_available and bool(self.installer_url)
 
     @property
     def message(self) -> str:
@@ -182,16 +256,25 @@ def check_for_updates(
             current_version, error="The published version could not be understood."
         )
 
+    installer_url, installer_name, installer_size, checksums_url = find_release_assets(
+        payload
+    )
     return UpdateCheck(
         current_version=current_version,
         latest_version=tag.lstrip("v").strip(),
         release_url=str(payload.get("html_url") or RELEASES_PAGE_URL),
+        installer_url=installer_url,
+        installer_name=installer_name,
+        installer_size=installer_size,
+        checksums_url=checksums_url,
     )
 
 
 __all__ = [
     "UpdateCheck",
     "check_for_updates",
+    "find_release_assets",
+    "ASSET_URL_PREFIX",
     "parse_version",
     "LATEST_RELEASE_URL",
     "RELEASES_PAGE_URL",
