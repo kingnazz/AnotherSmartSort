@@ -26,7 +26,7 @@ from dataclasses import dataclass
 import requests
 
 from app import APP_NAME
-from app.utils.logging_setup import get_logger
+from app.utils.logging_setup import get_logger, log_event
 from app.version import __version__
 
 logger = get_logger("updates")
@@ -36,9 +36,9 @@ logger = get_logger("updates")
 RELEASE_OWNER = "kingnazz"
 RELEASE_REPO = "AnotherSmartSort"
 
-#: GitHub's "newest published release" endpoint. It excludes drafts, and
-#: excludes pre-releases unless none other exists, which is the behaviour we
-#: want: a draft is not released, and a pre-release is not for everybody.
+#: GitHub's "newest published release" endpoint. It excludes drafts and
+#: pre-releases, which is the behaviour we want: a draft is not released, and
+#: a pre-release is not for everybody.
 LATEST_RELEASE_URL = (
     f"https://api.github.com/repos/{RELEASE_OWNER}/{RELEASE_REPO}/releases/latest"
 )
@@ -104,14 +104,34 @@ class UpdateCheck:
 
     @property
     def message(self) -> str:
-        """One line a dialog can show verbatim."""
+        """A concise result the Settings dialog can show verbatim."""
         if self.error:
             return self.error
         if not self.latest_version:
             return "No releases have been published yet."
         if self.update_available:
-            return f"Version {self.latest_version} is available."
-        return f"{APP_NAME} {self.current_version} is up to date."
+            return (
+                f"A new version of {APP_NAME} is available.\n\n"
+                f"Installed version: {self.current_version}\n"
+                f"Latest version: {self.latest_version}"
+            )
+        return (
+            f"{APP_NAME} is up to date.\n\n"
+            f"Installed version: {self.current_version}\n"
+            f"Latest published version: {self.latest_version}"
+        )
+
+
+def _log_result(result: UpdateCheck) -> UpdateCheck:
+    """Record a privacy-safe diagnostic summary and return *result*."""
+    log_event(
+        logger,
+        "update_check",
+        current_version=result.current_version,
+        latest_published_version=result.latest_version or None,
+        update_available=result.update_available,
+    )
+    return result
 
 
 def check_for_updates(
@@ -136,56 +156,72 @@ def check_for_updates(
             headers={"Accept": "application/vnd.github+json"},
         )
     except requests.Timeout:
-        return UpdateCheck(current_version, error="The update check timed out.")
+        return _log_result(UpdateCheck(current_version, error="The update check timed out."))
     except requests.ConnectionError:
-        return UpdateCheck(
-            current_version,
-            error="Could not reach the update server. Check your internet connection.",
+        return _log_result(
+            UpdateCheck(
+                current_version,
+                error="Could not reach the update server. Check your internet connection.",
+            )
         )
     except requests.RequestException as exc:
-        logger.info("Update check failed: %s", exc)
-        return UpdateCheck(current_version, error="The update check could not be completed.")
+        logger.info("Update check failed: %s", type(exc).__name__)
+        return _log_result(
+            UpdateCheck(current_version, error="The update check could not be completed.")
+        )
 
     status = getattr(response, "status_code", 0)
     if status == 404:
         # An empty release feed is not an error: a freshly published
         # repository has no releases, and neither does one that only ever
         # ships builds by hand.
-        return UpdateCheck(current_version)
+        return _log_result(UpdateCheck(current_version))
     if status == 403:
-        return UpdateCheck(
-            current_version,
-            error="The update server is rate limiting requests. Try again later.",
+        return _log_result(
+            UpdateCheck(
+                current_version,
+                error="The update server is rate limiting requests. Try again later.",
+            )
         )
     if status != 200:
         logger.info("Update check returned HTTP %s", status)
-        return UpdateCheck(
-            current_version,
-            error=f"The update server returned an unexpected response ({status}).",
+        return _log_result(
+            UpdateCheck(
+                current_version,
+                error=f"The update server returned an unexpected response ({status}).",
+            )
         )
 
     try:
         payload = response.json()
     except ValueError:
-        return UpdateCheck(
-            current_version, error="The update server's response could not be read."
+        return _log_result(
+            UpdateCheck(
+                current_version, error="The update server's response could not be read."
+            )
         )
     if not isinstance(payload, dict):
-        return UpdateCheck(
-            current_version, error="The update server's response could not be read."
+        return _log_result(
+            UpdateCheck(
+                current_version, error="The update server's response could not be read."
+            )
         )
 
     tag = str(payload.get("tag_name") or payload.get("name") or "").strip()
     if parse_version(tag) is None:
-        logger.info("Update check got an unrecognised version: %r", tag)
-        return UpdateCheck(
-            current_version, error="The published version could not be understood."
+        logger.info("Update check got an unrecognised published version tag")
+        return _log_result(
+            UpdateCheck(
+                current_version, error="The published version could not be understood."
+            )
         )
 
-    return UpdateCheck(
-        current_version=current_version,
-        latest_version=tag.lstrip("v").strip(),
-        release_url=str(payload.get("html_url") or RELEASES_PAGE_URL),
+    return _log_result(
+        UpdateCheck(
+            current_version=current_version,
+            latest_version=tag.lstrip("v").strip(),
+            release_url=str(payload.get("html_url") or RELEASES_PAGE_URL),
+        )
     )
 
 

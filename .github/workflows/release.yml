@@ -8,7 +8,8 @@ name: Release
 # until a human reviews the artifacts and presses publish — releasing software
 # to client machines should be a deliberate act, not a side effect of a tag.
 #
-# It can also be run manually from the Actions tab against any branch.
+# It can also be run manually for an existing version tag. The operator chooses
+# whether that thoroughly verified release remains a draft or is published.
 
 on:
   push:
@@ -17,6 +18,10 @@ on:
       - "v[0-9]+.[0-9]+.[0-9]+-*"
   workflow_dispatch:
     inputs:
+      tag:
+        description: "Existing version tag to release (for example v1.0.3)"
+        type: string
+        required: true
       draft:
         description: "Create the GitHub Release as a draft"
         type: boolean
@@ -36,10 +41,15 @@ jobs:
     runs-on: windows-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      release_tag: ${{ steps.release.outputs.tag }}
+      release_draft: ${{ steps.release.outputs.draft }}
 
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -58,18 +68,54 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
           Write-Host "Application version: $version"
 
-      # A tag must match the version in app/version.py, or the release would
-      # ship artifacts whose filenames disagree with the tag they came from.
-      - name: Verify the tag matches app/version.py
-        if: startsWith(github.ref, 'refs/tags/')
+      # Every release is tied to an existing version tag, including a manual
+      # dispatch launched while viewing an arbitrary branch in the Actions UI.
+      - name: Resolve and verify the release tag
+        id: release
         shell: pwsh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MANUAL_TAG: ${{ inputs.tag }}
+          MANUAL_DRAFT: ${{ inputs.draft }}
+          PUSH_TAG: ${{ github.ref_name }}
         run: |
-          $tag = "${{ github.ref_name }}" -replace '^v', ''
-          $version = "${{ steps.version.outputs.version }}"
-          if ($tag -ne $version) {
-            throw "Tag '${{ github.ref_name }}' does not match app/version.py ($version). Update app/version.py, or retag."
+          if ($env:EVENT_NAME -eq "workflow_dispatch") {
+            $tag = $env:MANUAL_TAG.Trim()
+            $draft = $env:MANUAL_DRAFT.ToLowerInvariant()
+          } else {
+            $tag = $env:PUSH_TAG
+            $draft = "true"
           }
-          Write-Host "Tag and application version agree: $version"
+
+          if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$') {
+            throw "Release tag '$tag' is not a supported version tag such as v1.0.3."
+          }
+          if ($draft -notin @("true", "false")) {
+            throw "Draft selection must be true or false."
+          }
+          if ($env:EVENT_NAME -eq "workflow_dispatch" -and $draft -eq "false" -and $tag.Contains("-")) {
+            throw "A published stable release requires a stable vX.Y.Z tag, not '$tag'."
+          }
+
+          git show-ref --verify --quiet "refs/tags/$tag"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Release tag '$tag' does not exist. Create and review the version tag first."
+          }
+          $tagCommit = (git rev-list -n 1 "refs/tags/$tag").Trim()
+          $headCommit = (git rev-parse HEAD).Trim()
+          if ($headCommit -ne $tagCommit) {
+            throw "Checked-out commit $headCommit does not match release tag '$tag' ($tagCommit)."
+          }
+
+          $tagVersion = $tag -replace '^v', ''
+          $version = "${{ steps.version.outputs.version }}"
+          if ($tagVersion -ne $version) {
+            throw "Tag '$tag' does not match app/version.py ($version). Update app/version.py, or use the correct tag."
+          }
+
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "draft=$draft" >> $env:GITHUB_OUTPUT
+          Write-Host "Release tag $tag resolves to $headCommit and matches app version $version (draft=$draft)."
 
       - name: Install dependencies
         run: |
@@ -157,14 +203,15 @@ jobs:
           retention-days: 90
 
   release:
-    name: Create the draft GitHub Release
+    name: Create the GitHub Release
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
 
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.build.outputs.release_tag }}
 
       - name: Download the built artifacts
         uses: actions/download-artifact@v4
@@ -216,10 +263,12 @@ jobs:
           } > release-notes.md
           cat release-notes.md
 
-      - name: Create the draft release
+      - name: Create the release
         uses: softprops/action-gh-release@v2
         with:
-          draft: true
+          tag_name: ${{ needs.build.outputs.release_tag }}
+          draft: ${{ needs.build.outputs.release_draft }}
+          prerelease: ${{ contains(needs.build.outputs.release_tag, '-') }}
           name: AS Resume Sorter ${{ needs.build.outputs.version }}
           body_path: release-notes.md
           files: |
