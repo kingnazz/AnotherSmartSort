@@ -168,7 +168,7 @@ class SettingsDialog(QDialog):
         self.update_status.setProperty("role", "caption")
         self.update_status.setWordWrap(True)
 
-        self.update_download_button = QPushButton("Get the update…")
+        self.update_download_button = QPushButton("View / Download Update")
         self.update_download_button.setProperty("variant", "accent")
         self.update_download_button.setVisible(False)
         self.update_download_button.clicked.connect(self._open_release_page)

@@ -1297,6 +1297,7 @@ class TestCheckForUpdates:
 
             assert "1.4.0" in dialog.update_status.text()
             assert dialog.update_download_button.isVisible()
+            assert dialog.update_download_button.text() == "View / Download Update"
             assert dialog._release_url == "https://example.com/r/1.4.0"
         finally:
             dialog.hide()
@@ -1313,7 +1314,11 @@ class TestCheckForUpdates:
             )
             qapp.processEvents()
 
-            assert "up to date" in dialog.update_status.text()
+            assert dialog.update_status.text() == (
+                "AS Resume Sorter is up to date.\n\n"
+                "Installed version: 1.0.0\n"
+                "Latest published version: 1.0.0"
+            )
             assert not dialog.update_download_button.isVisible()
         finally:
             dialog.hide()
@@ -1350,7 +1355,7 @@ class TestCheckForUpdates:
         finally:
             dialog.deleteLater()
 
-    def test_the_download_button_opens_the_release_page(self, qapp, window, monkeypatch) -> None:
+    def test_the_download_button_opens_the_specific_release(self, qapp, window, monkeypatch) -> None:
         opened: list[str] = []
         monkeypatch.setattr(
             "app.ui.settings_dialog.QDesktopServices.openUrl",

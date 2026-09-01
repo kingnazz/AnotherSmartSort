@@ -92,6 +92,20 @@ class TestUpdateAvailable:
     def test_double_digit_minors_compare_numerically(self) -> None:
         assert self.check("1.9.0", "1.10.0").update_available
 
+    @pytest.mark.parametrize(
+        ("current", "latest", "expected"),
+        [
+            ("1.0.1", "1.0.1", False),
+            ("1.0.1", "1.0.2", True),
+            ("1.0.1", "1.0.3", True),
+            ("1.0.2", "1.0.3", True),
+            ("1.0.3", "1.0.3", False),
+            ("1.0.3", "1.0.2", False),
+        ],
+    )
+    def test_published_release_matrix(self, current: str, latest: str, expected: bool) -> None:
+        assert self.check(current, latest).update_available is expected
+
     def test_nothing_is_offered_when_the_check_failed(self) -> None:
         assert not UpdateCheck("1.0.0", error="offline").update_available
 
@@ -108,14 +122,22 @@ class TestCheckForUpdates:
         assert result.update_available
         assert result.latest_version == "1.4.0"
         assert result.release_url == "https://example.com/r/1.4.0"
-        assert "1.4.0" in result.message
+        assert result.message == (
+            "A new version of AS Resume Sorter is available.\n\n"
+            "Installed version: 1.0.0\n"
+            "Latest version: 1.4.0"
+        )
 
     def test_being_current_is_reported_plainly(self) -> None:
         result = check_for_updates(current_version="1.0.0", session=FakeSession(release("v1.0.0")))
 
         assert result.checked
         assert not result.update_available
-        assert "up to date" in result.message
+        assert result.message == (
+            "AS Resume Sorter is up to date.\n\n"
+            "Installed version: 1.0.0\n"
+            "Latest published version: 1.0.0"
+        )
 
     def test_it_asks_the_release_feed(self) -> None:
         session = FakeSession(release("v1.0.0"))
@@ -123,6 +145,11 @@ class TestCheckForUpdates:
 
         assert session.calls[0]["url"] == LATEST_RELEASE_URL
         assert session.calls[0]["timeout"] > 0, "a check with no timeout can hang forever"
+
+    def test_the_feed_is_githubs_latest_published_stable_release(self) -> None:
+        """GitHub excludes drafts and prereleases from this endpoint."""
+        assert LATEST_RELEASE_URL.endswith("/releases/latest")
+        assert "/tags/" not in LATEST_RELEASE_URL
 
     # -- the ways it fails ---------------------------------------------
     def test_no_releases_yet_is_not_an_error(self) -> None:
@@ -189,6 +216,36 @@ class TestCheckForUpdates:
 
         assert result.update_available
         assert result.release_url == RELEASES_PAGE_URL
+
+    def test_the_returned_release_url_is_preserved(self) -> None:
+        specific = "https://github.com/kingnazz/AnotherSmartSort/releases/tag/v1.0.3"
+        result = check_for_updates(
+            current_version="1.0.1", session=FakeSession(release("v1.0.3", specific))
+        )
+
+        assert result.release_url == specific
+
+    def test_success_logs_only_the_update_versions_and_result(self, monkeypatch) -> None:
+        events: list[tuple[str, dict]] = []
+        monkeypatch.setattr(
+            "app.services.update_service.log_event",
+            lambda _logger, event, **fields: events.append((event, fields)),
+        )
+
+        check_for_updates(
+            current_version="1.0.1", session=FakeSession(release("v1.0.3"))
+        )
+
+        assert events == [
+            (
+                "update_check",
+                {
+                    "current_version": "1.0.1",
+                    "latest_published_version": "1.0.3",
+                    "update_available": True,
+                },
+            )
+        ]
 
     def test_no_failure_mode_raises(self) -> None:
         """The caller is a dialog; an exception here would be a crash on a button."""
