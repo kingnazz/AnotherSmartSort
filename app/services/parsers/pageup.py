@@ -64,6 +64,8 @@ TYPES_MARKER = "the following document types are provided for each applicant"
 ROSTER_MARKER = "the following applicants are included in this document"
 #: Precedes the declared applicant count.
 COUNT_MARKER = "number of applicants"
+#: PageUp footnote explaining the roster's trailing no-document marker.
+NO_DOCUMENT_FOOTNOTE_MARKER = "applicant has no documents"
 #: Heading that opens an applicant's generated application form.
 APPLICATION_FORM_MARKER = "primary application form"
 #: Last line of an applicant's application form.
@@ -115,6 +117,7 @@ _CLEAR_PAGE_MARGIN = 2.0
 
 _COUNT_RE = re.compile(r"(?i)number\s+of\s+applicants\s*[:\-]?\s*(\d{1,4})")
 _PARENTHETICAL_RE = re.compile(r"\([^)]*\)")
+_TRAILING_NO_DOCUMENT_MARKER_RE = re.compile(r"\s*\*\s*$")
 
 #: Honorifics that decorate a roster name without identifying anybody.
 _TITLES = frozenset({"dr", "mr", "mrs", "ms", "miss", "prof", "professor", "rev", "sir", "dame"})
@@ -144,17 +147,25 @@ class RosterEntry:
     key: str
     given_names: frozenset[str] = field(default_factory=frozenset)
     surname: str = ""
+    has_documents: bool = True
 
     @classmethod
-    def build(cls, display_name: str) -> "RosterEntry":
-        key = roster_key(display_name)
+    def build(
+        cls, display_name: str, *, has_documents: bool = True
+    ) -> "RosterEntry":
+        clean_name = (
+            _TRAILING_NO_DOCUMENT_MARKER_RE.sub("", display_name).strip()
+            if not has_documents
+            else display_name.strip()
+        )
+        key = roster_key(clean_name)
         parts = key.split()
         preferred: set[str] = set()
-        for parenthetical in re.findall(r"\(([^)]*)\)", display_name or ""):
+        for parenthetical in re.findall(r"\(([^)]*)\)", clean_name):
             preferred.update(_identity_tokens(parenthetical))
         given_names = set(parts[:-1]) | preferred
         return cls(
-            display_name=display_name.strip(),
+            display_name=clean_name,
             key=key,
             given_names=frozenset(given_names),
             surname=(
@@ -164,6 +175,7 @@ class RosterEntry:
                 if parts and preferred
                 else ""
             ),
+            has_documents=has_documents,
         )
 
 
@@ -175,6 +187,14 @@ class BulkCover:
     declared_types: list[str] = field(default_factory=list)
     roster: list[RosterEntry] = field(default_factory=list)
     declared_count: int | None = None
+
+    @property
+    def no_document_count(self) -> int:
+        return sum(not entry.has_documents for entry in self.roster)
+
+    @property
+    def expected_document_count(self) -> int:
+        return sum(entry.has_documents for entry in self.roster)
 
     def match(self, name: str) -> RosterEntry | None:
         key = roster_key(name)
@@ -236,6 +256,8 @@ class PageUpBulkCompileParser:
         outcome.metadata["declared_types"] = list(cover.declared_types)
         outcome.metadata["declared_count"] = cover.declared_count
         outcome.metadata["roster"] = [entry.display_name for entry in cover.roster]
+        outcome.metadata["no_document_count"] = cover.no_document_count
+        outcome.metadata["expected_document_count"] = cover.expected_document_count
 
         if not cover.roster:
             outcome.warn(
@@ -249,7 +271,8 @@ class PageUpBulkCompileParser:
             )
 
         self._mark_cover_page(pages, features_list, cover, separator_policy)
-        if self._is_resume_only(cover, features_list):
+        resume_only = self._is_resume_only(cover, features_list)
+        if resume_only:
             outcome.metadata["mode"] = "resume_only"
             segments = self._walk_resume_only(pages, features_list, cover, outcome)
         else:
@@ -260,11 +283,21 @@ class PageUpBulkCompileParser:
 
         found = len({segment.candidate_key for segment in segments if segment.candidate_key})
         outcome.metadata["applicants_found"] = found
-        if cover.declared_count is not None and found and found != cover.declared_count:
-            outcome.warn(
-                f"The cover page says {cover.declared_count} applicants but "
-                f"{found} were found in the file."
-            )
+        outcome.metadata["documents_found"] = outcome.documents_found
+        expected_found = (
+            cover.expected_document_count if resume_only else cover.declared_count
+        )
+        if expected_found is not None and found and found != expected_found:
+            if resume_only:
+                outcome.warn(
+                    f"The cover page expects {expected_found} document-bearing applicants "
+                    f"but {found} were found in the file."
+                )
+            else:
+                outcome.warn(
+                    f"The cover page says {cover.declared_count} applicants but "
+                    f"{found} were found in the file."
+                )
         return outcome
 
     # ------------------------------------------------------------------
@@ -291,11 +324,21 @@ class PageUpBulkCompileParser:
 
         if roster_at is not None:
             end = count_at if count_at is not None else len(lines)
-            cover.roster = [
-                RosterEntry.build(line)
-                for line in lines[roster_at + 1 : end]
-                if _looks_like_roster_name(line)
-            ]
+            has_no_document_footnote = NO_DOCUMENT_FOOTNOTE_MARKER in features.flat
+            roster: list[RosterEntry] = []
+            for line in lines[roster_at + 1 : end]:
+                if NO_DOCUMENT_FOOTNOTE_MARKER in flatten(line):
+                    continue
+                if not _looks_like_roster_name(line):
+                    continue
+                explicitly_empty = bool(
+                    has_no_document_footnote
+                    and _TRAILING_NO_DOCUMENT_MARKER_RE.search(line)
+                )
+                roster.append(
+                    RosterEntry.build(line, has_documents=not explicitly_empty)
+                )
+            cover.roster = roster
 
         match = _COUNT_RE.search(features.text)
         if match:
@@ -388,9 +431,22 @@ class PageUpBulkCompileParser:
         if not content_indexes:
             return []
 
+        document_roster = [entry for entry in cover.roster if entry.has_documents]
+        if not document_roster:
+            unexpected = _Segment(
+                kind="attachment",
+                document_type=RESUME,
+                display_name="",
+                candidate_key="",
+                first_page=content_indexes[0],
+                last_page=content_indexes[-1],
+            )
+            self._flag_missing_resume_boundary(unexpected, outcome)
+            return [unexpected]
+
         first_content = content_indexes[0]
         last_content = content_indexes[-1]
-        first_entry = cover.roster[0]
+        first_entry = document_roster[0]
         first_start = self._find_resume_start(
             first_entry, features_list, first_content, last_content
         )
@@ -430,7 +486,7 @@ class PageUpBulkCompileParser:
         )
         segments.append(current)
 
-        for expected in cover.roster[1:]:
+        for expected in document_roster[1:]:
             boundary = self._find_resume_start(
                 expected,
                 features_list,
@@ -464,11 +520,81 @@ class PageUpBulkCompileParser:
     ) -> int | None:
         """Find the first strong header for exactly one expected roster entry."""
         for index in range(max(first_page, 0), min(last_page + 1, len(features_list))):
-            if self._resume_header_score(expected, features_list[index]) >= (
-                _STRONG_RESUME_HEADER_SCORE
-            ):
+            features = features_list[index]
+            score = max(
+                self._resume_header_score(expected, features),
+                self._candidate_owned_attachment_score(expected, features),
+            )
+            if score >= _STRONG_RESUME_HEADER_SCORE:
                 return index
         return None
+
+    def _candidate_owned_attachment_score(
+        self, expected: RosterEntry, features: PageFeatures
+    ) -> float:
+        """Strength of a non-resume-looking PageUp attachment opening.
+
+        PageUp's Resume slot may contain a reference or cover note before the
+        resume itself. Such a page can open the next roster member only when
+        its first few lines explicitly identify that expected person as the
+        attachment's subject. A name in prose or a References list is not
+        ownership evidence.
+        """
+        if not expected.surname or not expected.given_names:
+            return 0.0
+        if features.page_marker and features.page_marker[0] > 1:
+            return 0.0
+
+        head = features.first_lines[:_RESUME_HEADER_LINES]
+        for position, line in enumerate(head[:4]):
+            tokens = list(_identity_tokens(line))
+            if not _line_names_expected(expected, tokens):
+                continue
+            identity_at = min(
+                tokens.index(token)
+                for token in tokens
+                if token == expected.surname or token in expected.given_names
+            )
+            prefix = tokens[:identity_at]
+            subject_words = {"reference", "recommendation"}
+            explicitly_for = "for" in prefix and bool(subject_words & set(prefix))
+            re_subject = bool(prefix and prefix[0] == "re" and position <= 2)
+            if explicitly_for or re_subject:
+                return 0.96 if position <= 2 else 0.90
+
+        headings = {
+            flatten(line).strip().rstrip(":")
+            for line in head[:3]
+        }
+        strong_resume_layout = bool(
+            headings & (_RESUME_SECTION_HEADINGS - {"references"})
+            or (features.bullet_lines and features.date_range_count)
+            or features.date_range_count >= 2
+        )
+        if features.has_contact_block and strong_resume_layout and len(head) >= 2:
+            first_tokens = list(_identity_tokens(head[0]))
+            second_tokens = list(_identity_tokens(head[1]))
+            combined = first_tokens + second_tokens
+            known = set(expected.key.split()) | set(expected.given_names)
+            extras = [token for token in combined if token not in known]
+            identity_is_split = bool(
+                _line_names_expected(expected, combined)
+                and not _line_names_expected(expected, first_tokens)
+                and not _line_names_expected(expected, second_tokens)
+            )
+            if (
+                identity_is_split
+                and len(combined) <= 6
+                and len(extras) <= 2
+                and not set(extras).intersection(_HEADER_PROSE_TOKENS)
+            ):
+                return 0.92
+
+        if headings & {"cover letter", "covering letter"}:
+            for line in head[:5]:
+                if _header_identity_strength(expected, line) >= 0.54:
+                    return 0.90
+        return 0.0
 
     def _resume_header_score(
         self, expected: RosterEntry, features: PageFeatures
@@ -496,7 +622,12 @@ class PageUpBulkCompileParser:
             positional = 0.20 if position == 0 else 0.12 if position <= 2 else 0.06
             contact = 0.12 if features.has_contact_block else 0.0
             layout = 0.12 if resume_layout else 0.0
-            best = max(best, identity + positional + contact + layout)
+            page_one = (
+                0.12
+                if features.page_marker and features.page_marker[0] == 1
+                else 0.0
+            )
+            best = max(best, identity + positional + contact + layout + page_one)
         return min(best, 1.0)
 
     def _has_resume_first_page_layout(self, features: PageFeatures) -> bool:
@@ -982,6 +1113,15 @@ def _header_identity_strength(entry: RosterEntry, line: str) -> float:
     return 0.0
 
 
+def _line_names_expected(entry: RosterEntry, tokens: list[str]) -> bool:
+    """Whether one line contains the expected surname and a known given name."""
+    token_set = set(tokens)
+    return bool(
+        entry.surname in token_set
+        and token_set.intersection(entry.given_names)
+    )
+
+
 def _join(names: list[str]) -> str:
     """``a, b and c`` -- for messages a reviewer reads."""
     if not names:
@@ -1017,6 +1157,7 @@ __all__ = [
     "roster_key",
     "TITLE_MARKER",
     "ROSTER_MARKER",
+    "NO_DOCUMENT_FOOTNOTE_MARKER",
     "APPLICATION_FORM_MARKER",
     "APPLICATION_END_MARKER",
 ]
