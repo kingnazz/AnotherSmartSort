@@ -138,11 +138,14 @@ class PageUpResumeOnlyApplicant:
     """Expected resume extent for an invented resume-only roster member."""
 
     display_name: str
-    resume_first: int
-    resume_last: int
+    resume_first: int | None
+    resume_last: int | None
+    has_documents: bool = True
 
     @property
     def resume_pages(self) -> list[int]:
+        if self.resume_first is None or self.resume_last is None:
+            return []
         return list(range(self.resume_first, self.resume_last + 1))
 
 
@@ -173,16 +176,31 @@ class PageUpResumeOnlyBatch:
 # --------------------------------------------------------------------------
 
 
-def cover_page(roster: tuple[str, ...], declared_types: tuple[str, ...] = (RESUME,)) -> SamplePage:
+def cover_page(
+    roster: tuple[str, ...],
+    declared_types: tuple[str, ...] = (RESUME,),
+    *,
+    where_available: bool = False,
+    no_document_indexes: tuple[int, ...] = (),
+) -> SamplePage:
     """The bulk compile's metadata cover: declared types, roster, count."""
+    types_heading = "The following document types are provided for each applicant"
+    if where_available:
+        types_heading += " where available"
     lines = [
         "PageUp People Applicant Bulk Compile",
         "",
-        "The following document types are provided for each applicant",
+        types_heading,
     ]
     lines.extend(declared_types)
     lines += ["", "The following applicants are included in this document"]
-    lines.extend(roster)
+    no_documents = set(no_document_indexes)
+    lines.extend(
+        f"{name}*" if index in no_documents else name
+        for index, name in enumerate(roster)
+    )
+    if no_documents:
+        lines += ["", "* Applicant has no documents."]
     lines += ["", f"Number of Applicants: {len(roster)}"]
     return SamplePage(lines=lines)
 
@@ -338,29 +356,58 @@ def resume_attachment_pages(
 
 
 def resume_only_pages(
-    header_name: str, total: int, *, include_contact: bool = True
+    header_name: str,
+    total: int,
+    *,
+    include_contact: bool = True,
+    opening_kind: str = "resume",
 ) -> list[SamplePage]:
     """Invented resume pages for the cover-plus-resumes PageUp shape."""
-    first = [header_name]
-    if include_contact:
-        first += [
-            "invented.candidate@example.com | (555) 010-4400",
-            "Northwind, OR",
+    if opening_kind == "reference":
+        first = [
+            "REFERENCE LETTER",
+            f"RE: Professional reference for {header_name}",
+            "To the selection committee:",
+            "",
+            *paragraph(
+                "This invented reference describes dependable programme "
+                "coordination and accessible community service."
+            ),
         ]
-    first += [
-        "",
-        "PROFESSIONAL SUMMARY",
-        *paragraph(
-            "Program coordinator experienced in community partnerships, "
-            "public workshops, scheduling, and accessible service delivery."
-        ),
-        "",
-        "PROFESSIONAL EXPERIENCE",
-        "Program Coordinator",
-        "Northwind Community Lab",
-        "2021 - Present",
-        bullet("Coordinated an invented regional workshop programme."),
-    ]
+    elif opening_kind == "cover_letter":
+        first = [
+            "COVER LETTER",
+            header_name,
+            "Dear Selection Committee:",
+            "",
+            *paragraph(
+                "Please accept this invented application for a programme "
+                "coordination role serving the Northwind community."
+            ),
+        ]
+    elif opening_kind == "resume":
+        first = [header_name]
+        if include_contact:
+            first += [
+                "invented.candidate@example.com | (555) 010-4400",
+                "Northwind, OR",
+            ]
+        first += [
+            "",
+            "PROFESSIONAL SUMMARY",
+            *paragraph(
+                "Program coordinator experienced in community partnerships, "
+                "public workshops, scheduling, and accessible service delivery."
+            ),
+            "",
+            "PROFESSIONAL EXPERIENCE",
+            "Program Coordinator",
+            "Northwind Community Lab",
+            "2021 - Present",
+            bullet("Coordinated an invented regional workshop programme."),
+        ]
+    else:
+        raise ValueError(f"unknown resume-only opening kind: {opening_kind}")
     pages = [SamplePage(lines=first)]
 
     for index in range(2, total + 1):
@@ -397,26 +444,62 @@ def build_resume_only_compile(
     lengths: tuple[int, ...] = (1, 2, 4, 7),
     header_names: tuple[str, ...] | None = None,
     contact_flags: tuple[bool, ...] | None = None,
+    no_document_indexes: tuple[int, ...] = (),
+    where_available: bool = False,
+    opening_kinds: tuple[str, ...] | None = None,
 ) -> PageUpResumeOnlyBatch:
     """Build a roster-ordered resume-only compile with no application forms."""
     if len(roster) != len(lengths):
         raise ValueError("roster and lengths must have the same size")
     headers = header_names or roster
     contacts = contact_flags or tuple(True for _ in roster)
-    if len(headers) != len(roster) or len(contacts) != len(roster):
-        raise ValueError("header options must match the roster size")
-
-    pages: list[SamplePage] = [cover_page(roster, (RESUME,))]
-    applicants: list[PageUpResumeOnlyApplicant] = []
-    for display_name, header_name, length, include_contact in zip(
-        roster, headers, lengths, contacts
+    openings = opening_kinds or tuple("resume" for _ in roster)
+    if (
+        len(headers) != len(roster)
+        or len(contacts) != len(roster)
+        or len(openings) != len(roster)
     ):
+        raise ValueError("header options must match the roster size")
+    no_documents = set(no_document_indexes)
+    if any(index < 0 or index >= len(roster) for index in no_documents):
+        raise ValueError("no-document indexes must name roster entries")
+
+    pages: list[SamplePage] = [
+        cover_page(
+            roster,
+            (RESUME,),
+            where_available=where_available,
+            no_document_indexes=no_document_indexes,
+        )
+    ]
+    applicants: list[PageUpResumeOnlyApplicant] = []
+    options = zip(roster, headers, lengths, contacts, openings)
+    for index, (
+        display_name,
+        header_name,
+        length,
+        include_contact,
+        opening_kind,
+    ) in enumerate(options):
+        if index in no_documents:
+            applicants.append(
+                PageUpResumeOnlyApplicant(
+                    display_name=display_name,
+                    resume_first=None,
+                    resume_last=None,
+                    has_documents=False,
+                )
+            )
+            continue
+        if length < 1:
+            raise ValueError("document-bearing applicants need at least one page")
         resume_first = len(pages) + 1
         pages.extend(
             resume_only_pages(
                 header_name,
                 length,
                 include_contact=include_contact,
+                opening_kind=opening_kind,
             )
         )
         applicants.append(
