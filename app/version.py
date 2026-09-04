@@ -22,7 +22,7 @@ _SEMVER_RE = re.compile(
 
 
 def version_tuple() -> tuple[int, int, int]:
-    """``1.0.4`` -> ``(1, 0, 3)`` -- the numeric parts, label ignored."""
+    """``1.0.4`` -> ``(1, 0, 4)`` -- the numeric parts, label ignored."""
     match = _SEMVER_RE.match(__version__)
     if not match:  # pragma: no cover - guarded by tests
         raise ValueError(f"Malformed application version: {__version__!r}")
