@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 from app.models.document import DocumentGroup
 from app.models.enums import SeparatorState
 from app.models.page import PageAnalysis
+from app.services.review_reasons import review_reasons_for
 from app.services.confidence import ConfidenceThresholds, confidence_percent
 from app.ui.theme import Palette
 from app.ui.widgets.badges import (
@@ -271,7 +272,7 @@ class Inspector(QWidget):
                 group.boundary_confidence, self._thresholds, self._tokens
             )
 
-            self._update_review_banner(group)
+            self._update_review_banner(group, pages)
 
             index = self._type_combo.findText(group.document_type)
             if index >= 0:
@@ -313,18 +314,28 @@ class Inspector(QWidget):
             self._exclude_button.setText(
                 "Include in export" if group.excluded else "Exclude from export"
             )
-            self._accept_button.setEnabled(group.requires_review)
+            self._accept_button.setEnabled(group.needs_attention)
 
             self._update_separator_button(selected_page)
         finally:
             self._updating = False
 
-    def _update_review_banner(self, group: DocumentGroup) -> None:
-        if not group.requires_review:
+    def _update_review_banner(
+        self, group: DocumentGroup, pages: list[PageAnalysis] | None = None
+    ) -> None:
+        """Say why this document is flagged, in the words the pipeline used.
+
+        Driven by needs_attention rather than requires_review: a document
+        flagged only because its candidate could not be confirmed used to show
+        no banner at all, which read as "nothing is wrong here" on the very
+        document the queue was pointing at.
+        """
+        explanations = review_reasons_for(group, pages or [])
+        if not explanations:
             self._review_banner.setVisible(False)
             return
-        reasons = "\n".join(f"• {reason}" for reason in group.review_reasons)
-        self._review_banner.setText(f"Needs review\n{reasons}")
+        reasons = "\n".join(f"• {reason}" for reason in explanations)
+        self._review_banner.setText(f"Why this needs review:\n{reasons}")
         self._review_banner.setStyleSheet(
             f"""
             QLabel {{

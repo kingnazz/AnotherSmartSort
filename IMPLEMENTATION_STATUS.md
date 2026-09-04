@@ -1,6 +1,6 @@
 # Implementation Status
 
-**Version:** 1.0.3
+**Version:** 1.0.4
 **Last updated:** 2026-09-01
 **Product name:** AS Resume Sorter (renamed from Smart PDF Sorter — see
 [Naming](#naming))
@@ -209,6 +209,42 @@ update row, the installer, Programs and Features, Start Menu and desktop
 shortcuts, the install path, the EXE's Windows metadata, the README and the
 GitHub Release title. See [Naming](#naming) for the three things that
 deliberately kept their old names, and why. **[unit] [win-ci]**
+
+### Needs Review deep-link (this phase, 1.0.4)
+
+The queue said "Review Needed"; the workspace then looked like every other
+file. The status was true and useless -- it named a file, and the user had to
+find the document inside it. A UX change only: no parser, classification,
+boundary, OCR or export behaviour was touched.
+
+Double-clicking a Review Needed row now selects the file, narrows to its
+flagged documents, focuses the first one and scrolls it into view. The banner
+says how many items and which file; **Next issue** / **Previous issue** walk
+between them with a "Review item 2 of 3" position; **Show all documents**
+leaves the focus mode without losing the user's place. **[unit]**
+
+Two defects surfaced while building it, both from the same root -- three
+different flags meaning "needs review", read inconsistently:
+
+| Defect | Effect |
+|---|---|
+| The card's pill and border keyed off `requires_review`, but the queue counts `needs_attention` | A document flagged only because its candidate was unconfirmed was counted by the file and marked nowhere on the board. The queue promised an item the workspace never showed. |
+| "Looks correct" cleared `requires_review` only | On that same association-only flag, the button ran, the item stayed counted, and nothing appeared to happen. Single-document accept now applies the same three steps "Approve all" already applied per document. |
+
+`app/services/review_reasons.py` is the one place that answers "why is this
+flagged", so the card tooltip, the inspector banner and the workspace banner
+cannot disagree. It uses the wording the pipeline already recorded and never
+manufactures a reason from a confidence score; `FALLBACK_REASON` covers a real
+state -- flagged with nothing recorded -- by naming what to check.
+
+One behaviour changed outside the review flow, deliberately: in review-only
+mode the file being looked at stays in the file list after its last item is
+resolved. It used to vanish at that moment, moving the selection to another
+file, so the reward for finishing was losing your place.
+
+**Not verified here:** nothing about scroll position or amber rendering is
+checked visually. The tests assert selection, counts, wording and which cards
+are marked -- not that the result looks right on a screen. **[untested]**
 
 ### The deterministic ATS report parser (previous phase)
 

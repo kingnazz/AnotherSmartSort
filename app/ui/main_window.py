@@ -205,6 +205,13 @@ class MainWindow(QMainWindow):
         self.queue_table.file_activated.connect(self._open_review_for)
         layout.addWidget(self.queue_table, 1)
 
+        # Shown only while something is actually flagged: a permanent hint is
+        # furniture, and the queue already has enough of it.
+        self.review_hint_label = QLabel("")
+        self.review_hint_label.setProperty("role", "caption")
+        self.review_hint_label.setVisible(False)
+        layout.addWidget(self.review_hint_label)
+
         self._empty_queue_label = QLabel(
             "No PDFs yet. Drop files above, or use Add PDFs to browse."
         )
@@ -241,8 +248,8 @@ class MainWindow(QMainWindow):
         self._review_button = QPushButton("Review documents")
         self._review_button.setProperty("variant", "subtle")
         self._review_button.setToolTip(
-            "Open the few documents that need a decision. Optional -- Sort & "
-            "Save works without it."
+            "Open the review workspace. Double-click a Review Needed row to "
+            "jump directly to that file's flagged item."
         )
         self._review_button.clicked.connect(lambda: self._show_page(_REVIEW_PAGE))
 
@@ -377,6 +384,10 @@ class MainWindow(QMainWindow):
         self.export_button.setEnabled(can_export and not self._busy)
         self._empty_queue_label.setVisible(not has_files)
         self.queue_table.setVisible(has_files)
+
+        hint = self.queue_table.review_hint()
+        self.review_hint_label.setText(hint)
+        self.review_hint_label.setVisible(has_files and bool(hint))
 
         if not has_files:
             self._queue_summary.setText("")
@@ -748,15 +759,25 @@ class MainWindow(QMainWindow):
         self._update_actions()
 
     def _open_review_for(self, path: str) -> None:
+        """Open the review workspace on a file the user double-clicked.
+
+        For a file that needs review this goes further than selecting it: the
+        workspace narrows to the flagged documents and lands on the first one,
+        because "Review Needed" used to tell the user something was wrong and
+        then leave them to find it. A file with nothing flagged opens exactly
+        as it always did.
+        """
         analyzed = [f for f in self._files.values() if f.is_analyzed]
         if not analyzed:
             return
         self.review_view.load(analyzed)
-        for row in range(self.review_view.file_list.count()):
-            item = self.review_view.file_list.item(row)
-            if item.data(Qt.ItemDataRole.UserRole) == path:
-                self.review_view.file_list.setCurrentRow(row)
-                break
+
+        if not self.review_view.focus_reviews(path):
+            for row in range(self.review_view.file_list.count()):
+                item = self.review_view.file_list.item(row)
+                if item.data(Qt.ItemDataRole.UserRole) == path:
+                    self.review_view.file_list.setCurrentRow(row)
+                    break
         self._show_page(_REVIEW_PAGE)
 
     def _show_page(self, index: int) -> None:

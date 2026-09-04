@@ -512,6 +512,19 @@ class TypeBoard(QWidget):
     def card(self, group_id: str) -> DocumentCard | None:
         return self._cards.get(group_id)
 
+    def scroll_document_into_view(self, group_id: str) -> bool:
+        """Bring one document's card on screen. False if it is not on the board.
+
+        Used when arriving from a "Review Needed" queue row: the flagged card
+        is often far down a long lane, and selecting something the user cannot
+        see is barely better than not selecting it at all.
+        """
+        card = self._cards.get(group_id)
+        if card is None:
+            return False
+        self._scroll.ensureWidgetVisible(card, 0, 40)
+        return True
+
     def lane_counts(self) -> dict[str, int]:
         return {name: lane.count for name, lane in self._lanes.items()}
 

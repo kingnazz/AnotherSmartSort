@@ -1457,3 +1457,390 @@ class TestBranding:
         finally:
             dialog.hide()
             dialog.deleteLater()
+
+
+class TestNeedsReviewDeepLink:
+    """Double-clicking a "Review Needed" row lands on the flagged document.
+
+    The complaint this answers: the queue said a file needed review, the user
+    opened it, and the workspace looked exactly like every other file. These
+    build the flags by hand rather than hoping the pipeline produces them, so
+    the counts under test are exact and no parsing behaviour is involved.
+    """
+
+    def flagged_window(self, qapp, window, samples_dir: Path, *, count: int = 1):
+        """Analyse one file, then flag exactly ``count`` of its documents."""
+        window.add_paths([samples_dir / sample_data.sample_a().filename])
+        window._start_analysis()
+        run_until_idle(qapp, window)
+
+        analysis = next(iter(window._files.values()))
+        for group in analysis.groups:
+            group.clear_review()
+            group.association_review = False
+            group.excluded = False
+        # Pages carry their own reasons, and review_reasons_for surfaces them.
+        # Clearing them too is what makes "flagged with no reason recorded" a
+        # real state rather than one the page quietly contradicts.
+        for page in analysis.pages:
+            page.requires_review = False
+            page.review_reasons.clear()
+
+        flagged = analysis.groups[:count]
+        for index, group in enumerate(flagged):
+            group.add_review_reason(
+                "Document type could not be determined"
+                if index == 0
+                else "Low page-grouping confidence"
+            )
+        analysis.refresh_status()
+        window.queue_table.upsert(analysis)
+        window._update_actions()
+        return window, analysis, flagged
+
+    def open_from_queue(self, qapp, window, analysis):
+        window._open_review_for(str(analysis.path))
+        qapp.processEvents()
+        return window.review_view
+
+    # -- arriving ------------------------------------------------------
+    def test_double_click_opens_review_on_the_flagged_document(
+        self, qapp, window, samples_dir: Path
+    ) -> None:
+        window, analysis, flagged = self.flagged_window(qapp, window, samples_dir)
+
+        row = window.queue_table.row_for(analysis.path)
+        window.queue_table.itemDoubleClicked.emit(window.queue_table.item(row, 0))
+        qapp.processEvents()
+        view = window.review_view
+
+        assert window._stack.currentWidget() is view, "review did not open"
+        assert view._current is analysis, "a different file was selected"
+        assert view._selected_group_id == flagged[0].id, "the flagged item was not focused"
+
+    def test_the_flagged_document_is_brought_on_screen(
+        self, qapp, window, samples_dir: Path
+    ) -> None:
+        """Selecting something the user cannot see is barely better than not
+        selecting it, so the section is scrolled to as well."""
+        window, analysis, flagged = self.flagged_window(qapp, window, samples_dir)
+        view = self.open_from_queue(qapp, window, analysis)
+
+        section = view._sections.get(flagged[0].id)
+        assert section is not None, "the flagged document was not rendered"
+        assert section._selected, "the flagged document was not visibly selected"
+
+    def test_review_only_mode_is_entered_automatically(
+        self, qapp, window, samples_dir: Path
+    ) -> None:
+        window, analysis, _ = self.flagged_window(qapp, window, samples_dir)
+        view = self.open_from_queue(qapp, window, analysis)
+
+        assert view._review_only
+        assert view.review_filter_button.isChecked()
+
+    def test_a_clean_file_opens_normally(self, qapp, window, samples_dir: Path) -> None:
+        """Nothing flagged means nothing to focus, and no filter to impose."""
+        window, analysis, _ = self.flagged_window(qapp, window, samples_dir, count=0)
+        view = self.open_from_queue(qapp, window, analysis)
+
+        assert not view._review_only, "a clean file was forced into review-only"
+        assert window._stack.currentWidget() is view
+        assert view._current is analysis
+
+    def test_file_activated_still_reaches_the_window(
+        self, qapp, window, samples_dir: Path
+    ) -> None:
+        """The existing signal contract is unchanged."""
+        window, analysis, _ = self.flagged_window(qapp, window, samples_dir)
+        seen: list[str] = []
+        window.queue_table.file_activated.connect(seen.append)
+
+        row = window.queue_table.row_for(analysis.path)
+        window.queue_table.itemDoubleClicked.emit(window.queue_table.item(row, 0))
+        qapp.processEvents()
+
+        assert seen == [str(analysis.path)]
+
+    # -- the banner ----------------------------------------------------
+    def test_the_banner_counts_one_item_in_the_singular(
+        self, qapp, window, samples_dir: Path
+    ) -> None:
+        window, analysis, _ = self.flagged_window(qapp, window, samples_dir, count=1)
+        view = self.open_from_queue(qapp, window, analysis)
+
+        assert view._banner.isVisibleTo(view)
+        assert f"1 item needs review in {analysis.name}" in view.banner_label.text()
+
+    def test_the_banner_counts_several_in_the_plural(
+        self, qapp, window, samples_dir: Path
+    ) -> None:
+        window, analysis, _ = self.flagged_window(qapp, window, samples_dir, count=2)
+        view = self.open_from_queue(qapp, window, analysis)
+
+        assert f"2 items need review in {analysis.name}" in view.banner_label.text()
+
+    def test_the_position_is_shown(self, qapp, window, samples_dir: Path) -> None:
+        window, analysis, _ = self.flagged_window(qapp, window, samples_dir, count=2)
+        view = self.open_from_queue(qapp, window, analysis)
+
+        assert view.issue_position_label.text() == "Review item 1 of 2"
+
+    # -- the reason ----------------------------------------------------
+    def test_the_selected_document_says_why(
+        self, qapp, window, samples_dir: Path
+    ) -> None:
+        window, analysis, flagged = self.flagged_window(qapp, window, samples_dir)
+        view = self.open_from_queue(qapp, window, analysis)
+
+        banner = view.inspector._review_banner
+        assert banner.isVisibleTo(view.inspector)
+        assert "Why this needs review:" in banner.text()
+        assert "Document type could not be determined" in banner.text()
+
+    def test_an_unconfirmed_candidate_is_explained_too(
+        self, qapp, window, samples_dir: Path
+    ) -> None:
+        """This flag used to show no banner at all, on the very document the
+        queue was pointing at."""
+        window, analysis, _ = self.flagged_window(qapp, window, samples_dir, count=0)
+        target = analysis.groups[0]
+        target.association_review = True
+        analysis.refresh_status()
+
+        view = self.open_from_queue(qapp, window, analysis)
+        assert view._selected_group_id == target.id
+        assert "Candidate assignment could not be confirmed" in (
+            view.inspector._review_banner.text()
+        )
+
+    def test_a_reasonless_flag_still_says_what_to_check(
+        self, qapp, window, samples_dir: Path
+    ) -> None:
+        window, analysis, _ = self.flagged_window(qapp, window, samples_dir, count=0)
+        target = analysis.groups[0]
+        target.requires_review = True
+        analysis.refresh_status()
+
+        view = self.open_from_queue(qapp, window, analysis)
+        assert "type, pages, and candidate" in view.inspector._review_banner.text()
+
+    # -- the highlight -------------------------------------------------
+    def test_only_flagged_documents_are_marked(
+        self, qapp, window, samples_dir: Path
+    ) -> None:
+        """A board where everything is amber says nothing."""
+        window, analysis, flagged = self.flagged_window(qapp, window, samples_dir)
+        window.review_view.load([analysis])
+        view = window.review_view
+        view.review_filter_button.setChecked(False)
+        qapp.processEvents()
+
+        flagged_ids = {group.id for group in flagged}
+        marked = {
+            group_id
+            for group_id, section in view._sections.items()
+            if section._flagged
+        }
+        assert marked == flagged_ids
+
+    # -- moving between issues ------------------------------------------
+    def test_next_issue_moves_to_the_next_flagged_document(
+        self, qapp, window, samples_dir: Path
+    ) -> None:
+        window, analysis, flagged = self.flagged_window(qapp, window, samples_dir, count=2)
+        view = self.open_from_queue(qapp, window, analysis)
+
+        view.next_issue_button.click()
+        qapp.processEvents()
+
+        assert view._selected_group_id == flagged[1].id
+        assert view.issue_position_label.text() == "Review item 2 of 2"
+
+    def test_previous_issue_goes_back(self, qapp, window, samples_dir: Path) -> None:
+        window, analysis, flagged = self.flagged_window(qapp, window, samples_dir, count=2)
+        view = self.open_from_queue(qapp, window, analysis)
+
+        view.next_issue_button.click()
+        qapp.processEvents()
+        view.previous_issue_button.click()
+        qapp.processEvents()
+
+        assert view._selected_group_id == flagged[0].id
+        assert view.issue_position_label.text() == "Review item 1 of 2"
+
+    def test_navigation_stops_at_the_ends(self, qapp, window, samples_dir: Path) -> None:
+        window, analysis, _ = self.flagged_window(qapp, window, samples_dir, count=2)
+        view = self.open_from_queue(qapp, window, analysis)
+
+        assert not view.previous_issue_button.isEnabled(), "wrapped backwards off the start"
+        view.next_issue_button.click()
+        qapp.processEvents()
+        assert not view.next_issue_button.isEnabled(), "wrapped forwards off the end"
+
+    def test_a_single_issue_hides_the_navigation(
+        self, qapp, window, samples_dir: Path
+    ) -> None:
+        window, analysis, _ = self.flagged_window(qapp, window, samples_dir, count=1)
+        view = self.open_from_queue(qapp, window, analysis)
+
+        assert not view.next_issue_button.isVisibleTo(view._banner)
+        assert not view.previous_issue_button.isVisibleTo(view._banner)
+
+    # -- resolving -----------------------------------------------------
+    def test_accepting_an_item_advances_to_the_next(
+        self, qapp, window, samples_dir: Path
+    ) -> None:
+        window, analysis, flagged = self.flagged_window(qapp, window, samples_dir, count=2)
+        view = self.open_from_queue(qapp, window, analysis)
+
+        view._accept_group(flagged[0].id)
+        qapp.processEvents()
+
+        assert not flagged[0].needs_attention, "the accepted item is still flagged"
+        assert analysis.review_group_count == 1
+        assert view._selected_group_id == flagged[1].id, "focus did not move on"
+
+    def test_resolving_the_last_item_says_so(
+        self, qapp, window, samples_dir: Path
+    ) -> None:
+        window, analysis, flagged = self.flagged_window(qapp, window, samples_dir, count=1)
+        view = self.open_from_queue(qapp, window, analysis)
+
+        view._accept_group(flagged[0].id)
+        qapp.processEvents()
+
+        assert analysis.review_group_count == 0
+        assert "All review items" in view.banner_label.text()
+        assert view.show_all_button.isVisibleTo(view._banner)
+
+    def test_an_association_flag_is_actually_resolved(
+        self, qapp, window, samples_dir: Path
+    ) -> None:
+        """Clearing only the document's own flag left the item still counted,
+        with a button that appeared to do nothing."""
+        window, analysis, _ = self.flagged_window(qapp, window, samples_dir, count=0)
+        target = analysis.groups[0]
+        target.association_review = True
+        analysis.refresh_status()
+        view = self.open_from_queue(qapp, window, analysis)
+
+        view._accept_group(target.id)
+        qapp.processEvents()
+
+        assert not target.needs_attention
+        assert analysis.review_group_count == 0
+
+    def test_an_unattributed_document_still_resolves(
+        self, qapp, window, samples_dir: Path
+    ) -> None:
+        """The case the packet path does not cover.
+
+        Accepting a packet clears association_review for its members, so a
+        document that belongs to no packet -- or sits in the unknown queue --
+        is only cleared by the document-level step. Without it the item stays
+        counted and the button looks broken, which is precisely the bug this
+        whole change exists to stop.
+        """
+        window, analysis, _ = self.flagged_window(qapp, window, samples_dir, count=0)
+        target = analysis.groups[0]
+        target.packet_id = None
+        target.association_review = True
+        analysis.refresh_status()
+        assert analysis.packet_for_document(target) is None
+
+        view = self.open_from_queue(qapp, window, analysis)
+        view._accept_group(target.id)
+        qapp.processEvents()
+
+        assert not target.association_review, "an unattributed document stayed flagged"
+        assert analysis.review_group_count == 0
+
+    def test_the_file_status_follows_the_state_machine(
+        self, qapp, window, samples_dir: Path
+    ) -> None:
+        window, analysis, flagged = self.flagged_window(qapp, window, samples_dir, count=1)
+        assert analysis.status is FileStatus.REVIEW_NEEDED
+
+        view = self.open_from_queue(qapp, window, analysis)
+        view._accept_group(flagged[0].id)
+        qapp.processEvents()
+
+        assert analysis.status is FileStatus.READY
+
+    # -- leaving the focus mode ----------------------------------------
+    def test_show_all_documents_exits_review_only(
+        self, qapp, window, samples_dir: Path
+    ) -> None:
+        window, analysis, flagged = self.flagged_window(qapp, window, samples_dir, count=1)
+        view = self.open_from_queue(qapp, window, analysis)
+        assert view._review_only
+
+        view.show_all_button.click()
+        qapp.processEvents()
+
+        assert not view._review_only
+        assert len(view._sections) == len(analysis.groups), "not every document came back"
+        assert view._selected_group_id == flagged[0].id, "the user lost their place"
+
+
+class TestQueueReviewGuidance:
+    """The queue's own hints. Secondary to the deep-link, but they are what a
+    user reads before they think to double-click anything."""
+
+    def flagged(self, qapp, window, samples_dir: Path, count: int):
+        window.add_paths([samples_dir / sample_data.sample_a().filename])
+        window._start_analysis()
+        run_until_idle(qapp, window)
+        analysis = next(iter(window._files.values()))
+        for group in analysis.groups:
+            group.clear_review()
+            group.association_review = False
+        for group in analysis.groups[:count]:
+            group.add_review_reason("Low document-type confidence")
+        analysis.refresh_status()
+        window.queue_table.upsert(analysis)
+        window._update_actions()
+        return analysis
+
+    def test_status_tooltip_is_singular_for_one(
+        self, qapp, window, samples_dir: Path
+    ) -> None:
+        analysis = self.flagged(qapp, window, samples_dir, 1)
+        tooltip = window.queue_table._review_tooltip(analysis)
+
+        assert "1 document that needs review" in tooltip
+        assert "Double-click this row" in tooltip
+
+    def test_status_tooltip_is_plural_for_several(
+        self, qapp, window, samples_dir: Path
+    ) -> None:
+        analysis = self.flagged(qapp, window, samples_dir, 2)
+        assert "2 documents that need review" in window.queue_table._review_tooltip(analysis)
+
+    def test_the_documents_cell_points_at_the_row(
+        self, qapp, window, samples_dir: Path
+    ) -> None:
+        analysis = self.flagged(qapp, window, samples_dir, 1)
+        row = window.queue_table.row_for(analysis.path)
+        tooltip = window.queue_table.item(row, 3).toolTip()
+
+        assert "1 document needs review." in tooltip
+        assert "Double-click this row to go directly to it." in tooltip
+
+    def test_the_hint_appears_only_when_something_is_flagged(
+        self, qapp, window, samples_dir: Path
+    ) -> None:
+        self.flagged(qapp, window, samples_dir, 1)
+        assert window.review_hint_label.isVisibleTo(window)
+        assert "Double-click a Review Needed row" in window.review_hint_label.text()
+
+    def test_no_hint_when_nothing_needs_review(
+        self, qapp, window, samples_dir: Path
+    ) -> None:
+        self.flagged(qapp, window, samples_dir, 0)
+        assert window.queue_table.review_hint() == ""
+        assert not window.review_hint_label.isVisibleTo(window)
+
+    def test_the_review_button_explains_the_shortcut(self, qapp, window) -> None:
+        assert "Double-click a Review Needed row" in window._review_button.toolTip()
