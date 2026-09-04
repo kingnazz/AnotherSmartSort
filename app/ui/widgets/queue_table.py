@@ -22,6 +22,10 @@ from app.ui.widgets.badges import ConfidencePill, StatusPill
 
 COLUMNS = ("File", "Pages", "Status", "Documents", "Confidence")
 
+#: Per-row flag for 'this file has review items', so the queue hint can be
+#: derived from the table itself rather than re-reading the model.
+_REVIEW_ROLE = Qt.ItemDataRole.UserRole + 1
+
 
 class QueueTable(QTableWidget):
     """Shows every queued PDF with live status, documents found and confidence."""
@@ -100,6 +104,7 @@ class QueueTable(QTableWidget):
         if analysis.error:
             tooltip += f"\n\n{analysis.error}"
         name_item.setToolTip(tooltip)
+        name_item.setData(_REVIEW_ROLE, bool(analysis.review_group_count))
         self.setItem(row, 0, name_item)
 
         pages = QTableWidgetItem(str(analysis.page_count) if analysis.page_count else "—")
@@ -111,6 +116,15 @@ class QueueTable(QTableWidget):
         documents = self._documents_text(analysis)
         documents_item = QTableWidgetItem(documents)
         documents_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        review = analysis.review_group_count
+        if review:
+            documents_item.setToolTip(
+                f"{self._document_phrase(review)} needs review.\n"
+                "Double-click this row to go directly to it."
+                if review == 1
+                else f"{self._document_phrase(review)} need review.\n"
+                "Double-click this row to go directly to them."
+            )
         self.setItem(row, 3, documents_item)
 
         self.setCellWidget(row, 4, self._confidence_cell(analysis))
@@ -135,6 +149,8 @@ class QueueTable(QTableWidget):
         pill = StatusPill(analysis.status, self._palette_tokens)
         if analysis.error:
             pill.setToolTip(analysis.error)
+        elif analysis.status is FileStatus.REVIEW_NEEDED:
+            pill.setToolTip(self._review_tooltip(analysis))
         layout.addWidget(pill)
         layout.addStretch(1)
         return container
@@ -159,6 +175,34 @@ class QueueTable(QTableWidget):
             )
             layout.addWidget(pill)
         return container
+
+    @staticmethod
+    def _document_phrase(count: int) -> str:
+        return "1 document" if count == 1 else f"{count} documents"
+
+    def _review_tooltip(self, analysis: SourceFileAnalysis) -> str:
+        count = analysis.review_group_count
+        if count == 1:
+            return (
+                "This file has 1 document that needs review.\n"
+                "Double-click this row to open the item that needs attention."
+            )
+        return (
+            f"This file has {count} documents that need review.\n"
+            "Double-click this row to open the items that need attention."
+        )
+
+    def review_hint(self) -> str:
+        """A one-line nudge for the queue, empty when nothing needs review."""
+        return (
+            "Double-click a Review Needed row to go directly to the item."
+            if self.review_file_count()
+            else ""
+        )
+
+    def review_file_count(self) -> int:
+        rows = (self.item(row, 0) for row in range(self.rowCount()))
+        return sum(1 for item in rows if item is not None and item.data(_REVIEW_ROLE))
 
     @staticmethod
     def _documents_text(analysis: SourceFileAnalysis) -> str:
