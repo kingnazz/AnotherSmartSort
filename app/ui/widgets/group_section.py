@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 
 from app.models.document import DocumentGroup
 from app.models.page import PageAnalysis
+from app.services.review_reasons import review_reasons_for
 from app.services.confidence import ConfidenceThresholds
 from app.ui.theme import Palette
 from app.ui.widgets.badges import ConfidencePill, Pill
@@ -47,6 +48,7 @@ class GroupSection(QFrame):
         self._tokens = palette
         self._thresholds = thresholds
         self._selected = False
+        self._flagged = group.needs_attention
         self._cards: dict[int, PageCard] = {}
 
         self.setObjectName("groupSection")
@@ -57,6 +59,7 @@ class GroupSection(QFrame):
         layout.setSpacing(10)
 
         layout.addLayout(self._build_header(group))
+        self.setToolTip("\n".join(review_reasons_for(group, pages)))
 
         cards_host = QWidget()
         self._flow = FlowLayout(cards_host, margin=0, spacing=8)
@@ -91,11 +94,14 @@ class GroupSection(QFrame):
         )
 
         self._review_pill = Pill(
-            "Review",
+            "Needs Review",
             background=self._tokens.warning_soft,
             foreground=self._tokens.warning,
         )
-        self._review_pill.setVisible(group.requires_review)
+        # needs_attention, not requires_review: the queue's "N to review" counts
+        # association-only flags too, so keying the pill off the narrower flag
+        # let a file claim an item the board never marked.
+        self._review_pill.setVisible(group.needs_attention)
 
         self._excluded_pill = Pill(
             "Excluded",
@@ -124,10 +130,12 @@ class GroupSection(QFrame):
         self._confidence.update_value(
             group.overall_confidence, self._thresholds, self._tokens
         )
-        self._review_pill.setVisible(group.requires_review)
+        self._review_pill.setVisible(group.needs_attention)
         self._excluded_pill.setVisible(group.excluded)
         self._candidate_label.setText(group.candidate.name or "No name found")
-        self.setToolTip("\n".join(group.review_reasons) if group.review_reasons else "")
+        self.setToolTip("\n".join(review_reasons_for(group, pages)))
+        self._flagged = group.needs_attention
+        self._apply_style()
 
         for page in pages:
             card = self._cards.get(page.page_index)
@@ -152,8 +160,14 @@ class GroupSection(QFrame):
     # ------------------------------------------------------------------
     def _apply_style(self) -> None:
         tokens = self._tokens
-        border = tokens.accent if self._selected else tokens.stroke
-        width = 2 if self._selected else 1
+        if self._selected:
+            border, width = tokens.accent, 2
+        elif self._flagged:
+            # Unmistakable without being loud: normal documents keep the plain
+            # hairline, so a board of forty is not a wall of amber.
+            border, width = tokens.warning, 2
+        else:
+            border, width = tokens.stroke, 1
         self.setStyleSheet(
             f"""
             QFrame#groupSection {{

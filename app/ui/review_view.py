@@ -34,6 +34,7 @@ from app.models.document import DocumentGroup
 from app.models.enums import FileStatus
 from app.models.packet import CandidatePacket
 from app.models.source_file import SourceFileAnalysis
+from app.services.review_reasons import flagged_groups, review_summary
 from app.services.confidence import ConfidenceThresholds
 from app.services.correction_history import CorrectionHistory
 from app.services.grouping_service import GroupingService
@@ -110,6 +111,7 @@ class ReviewView(QWidget):
         layout.setSpacing(0)
 
         layout.addWidget(self._build_toolbar())
+        layout.addWidget(self._build_review_banner())
 
         # Two ways to look at the same documents. The type board is the
         # default because the common correction is about a document's kind;
@@ -232,6 +234,50 @@ class ReviewView(QWidget):
         layout.addWidget(self.export_button)
         return bar
 
+    def _build_review_banner(self) -> QWidget:
+        """The strip that says what needs review here, and walks through it.
+
+        It exists because the queue could say "Review Needed" and the workspace
+        could then look completely ordinary -- the user knew something was
+        wrong but not what, or where. This answers which file, how many items,
+        and gives the two buttons that move between them.
+        """
+        self._banner = QFrame()
+        self._banner.setObjectName("reviewBanner")
+        self._banner.setVisible(False)
+
+        row = QHBoxLayout(self._banner)
+        row.setContentsMargins(16, 8, 16, 8)
+        row.setSpacing(10)
+
+        self.banner_label = QLabel("")
+        self.banner_label.setWordWrap(True)
+
+        self.previous_issue_button = QPushButton("Previous issue")
+        self.previous_issue_button.setProperty("variant", "subtle")
+        self.previous_issue_button.clicked.connect(lambda: self._step_issue(-1))
+
+        self.next_issue_button = QPushButton("Next issue")
+        self.next_issue_button.setProperty("variant", "subtle")
+        self.next_issue_button.clicked.connect(lambda: self._step_issue(1))
+
+        self.issue_position_label = QLabel("")
+        self.issue_position_label.setProperty("role", "caption")
+
+        self.show_all_button = QPushButton("Show all documents")
+        self.show_all_button.setProperty("variant", "subtle")
+        self.show_all_button.setToolTip(
+            "Leave the review-only view and show every document in this file"
+        )
+        self.show_all_button.clicked.connect(self._show_all_documents)
+
+        row.addWidget(self.banner_label, 1)
+        row.addWidget(self.issue_position_label)
+        row.addWidget(self.previous_issue_button)
+        row.addWidget(self.next_issue_button)
+        row.addWidget(self.show_all_button)
+        return self._banner
+
     def _build_left_panel(self) -> QWidget:
         panel = QFrame()
         panel.setProperty("role", "panel")
@@ -318,7 +364,13 @@ class ReviewView(QWidget):
         visible = [
             analysis
             for analysis in self._files
-            if not self._review_only or self._file_review_count(analysis)
+            # The file being looked at stays listed even once its last item is
+            # resolved. Dropping it at that moment moves the selection to some
+            # other file and replaces "all resolved" with a view of somebody
+            # else's problem -- the user did the work and lost their place.
+            if not self._review_only
+            or self._file_review_count(analysis)
+            or (keep_path is not None and str(analysis.path) == keep_path)
         ]
 
         self.file_list.blockSignals(True)
@@ -380,6 +432,7 @@ class ReviewView(QWidget):
         self._selected_group_id = None
         self._selected_page_index = None
         self._render_groups()
+        self._update_banner()
 
     def _find_file(self, path: str | None) -> SourceFileAnalysis | None:
         if not path:
@@ -589,6 +642,175 @@ class ReviewView(QWidget):
             packet_name=packet.display_name if packet else "",
             candidate_choices=self.candidate_choices(),
         )
+
+    # ------------------------------------------------------------------
+    # Needs Review: getting to the flagged document, and between them
+    # ------------------------------------------------------------------
+    def focus_reviews(self, path: str) -> bool:
+        """Open ``path`` showing only what needs review, on the first item.
+
+        This is what a double-click on a "Review Needed" queue row lands in.
+        Selecting the file was never the hard part -- finding which of its
+        documents the status referred to was, and on a forty-document file that
+        meant hunting. Returns whether anything was actually flagged, so the
+        caller can fall back to the ordinary workspace.
+        """
+        analysis = self._find_file(path)
+        if analysis is None or not flagged_groups(analysis):
+            return False
+
+        self._select_file_row(path)
+        # Set the flag directly and sync the button: going through the toggle
+        # would run _toggle_review_filter, which jumps to "a file with review
+        # items" and could land on a different file than the one asked for.
+        self._review_only = True
+        self.review_filter_button.blockSignals(True)
+        self.review_filter_button.setChecked(True)
+        self.review_filter_button.setText("Showing review only")
+        self.review_filter_button.blockSignals(False)
+
+        self._populate_file_list(keep_path=path)
+        self._select_file_row(path)
+        self._render_groups()
+        self._focus_issue(0)
+        self._update_summary()
+        return True
+
+    def _select_file_row(self, path: str) -> None:
+        for row in range(self.file_list.count()):
+            item = self.file_list.item(row)
+            if item is not None and item.data(Qt.ItemDataRole.UserRole) == path:
+                self.file_list.setCurrentRow(row)
+                return
+
+    def current_issues(self) -> list[DocumentGroup]:
+        """Flagged documents in the selected file, in page order."""
+        if self._current is None:
+            return []
+        return flagged_groups(self._current)
+
+    def current_issue_index(self) -> int:
+        """Where the selection sits among the flagged documents, or -1."""
+        issues = self.current_issues()
+        for position, group in enumerate(issues):
+            if group.id == self._selected_group_id:
+                return position
+        return -1
+
+    def _focus_issue(self, position: int) -> None:
+        """Select the flagged document at ``position`` and bring it on screen."""
+        issues = self.current_issues()
+        if not issues:
+            self._update_banner()
+            return
+        position = max(0, min(position, len(issues) - 1))
+        group = issues[position]
+        self._select_group(group.id)
+        self._scroll_group_into_view(group.id)
+        self._update_banner()
+
+    def _step_issue(self, delta: int) -> None:
+        issues = self.current_issues()
+        if not issues:
+            return
+        current = self.current_issue_index()
+        # From "nowhere in particular", forward means the first item rather
+        # than the second.
+        target = 0 if current < 0 and delta > 0 else current + delta
+        self._focus_issue(target)
+
+    def _scroll_group_into_view(self, group_id: str) -> None:
+        """Bring a document on screen in whichever view is showing it."""
+        section = self._sections.get(group_id)
+        if section is not None:
+            self._scroll.ensureWidgetVisible(section, 0, 40)
+        board_scroll = getattr(self.type_board, "scroll_document_into_view", None)
+        if callable(board_scroll):
+            board_scroll(group_id)
+
+    def _show_all_documents(self) -> None:
+        """Leave review-only and keep the user where they were looking."""
+        keep = self._selected_group_id
+        self.review_filter_button.setChecked(False)
+        if keep:
+            self._select_group(keep)
+            self._scroll_group_into_view(keep)
+        self._update_banner()
+
+    def _advance_after_resolution(self, resolved_group_id: str | None) -> None:
+        """Re-render after a correction, then move to whatever is still open.
+
+        Staying on a document the user has just accepted means the next click
+        is always "now where was I?"; this answers that for them, and only
+        moves on when the item really is resolved.
+        """
+        remaining = self.current_issues()
+        resolved = all(group.id != resolved_group_id for group in remaining)
+        self._after_change(resolved_group_id, rebuild=False)
+
+        if not resolved:
+            return
+        issues = self.current_issues()
+        if issues:
+            self._focus_issue(0)
+        else:
+            self._update_banner()
+
+    def _update_banner(self) -> None:
+        """Say what is left to review here, or that nothing is."""
+        analysis = self._current
+        if analysis is None:
+            self._banner.setVisible(False)
+            return
+
+        issues = self.current_issues()
+        showing_review_only = self._review_only
+
+        if not issues and not showing_review_only:
+            self._banner.setVisible(False)
+            return
+
+        if issues:
+            self.banner_label.setText(
+                f"{review_summary(len(issues), analysis.name)}\n"
+                "Check the highlighted document below."
+            )
+            position = self.current_issue_index()
+            self.issue_position_label.setText(
+                f"Review item {position + 1} of {len(issues)}" if position >= 0 else ""
+            )
+            multiple = len(issues) > 1
+            self.previous_issue_button.setVisible(multiple)
+            self.next_issue_button.setVisible(multiple)
+            self.previous_issue_button.setEnabled(multiple and position > 0)
+            self.next_issue_button.setEnabled(multiple and position < len(issues) - 1)
+        else:
+            self.banner_label.setText(
+                f"All review items in {analysis.name} are resolved."
+            )
+            self.issue_position_label.setText("")
+            self.previous_issue_button.setVisible(False)
+            self.next_issue_button.setVisible(False)
+
+        self.show_all_button.setVisible(showing_review_only)
+        self._banner.setStyleSheet(
+            f"""
+            QFrame#reviewBanner {{
+                background-color: {self._tokens.warning_soft};
+                border-bottom: 1px solid {self._tokens.warning};
+            }}
+            QFrame#reviewBanner QLabel {{ color: {self._tokens.warning}; }}
+            """
+            if issues
+            else f"""
+            QFrame#reviewBanner {{
+                background-color: {self._tokens.success_soft};
+                border-bottom: 1px solid {self._tokens.success};
+            }}
+            QFrame#reviewBanner QLabel {{ color: {self._tokens.success}; }}
+            """
+        )
+        self._banner.setVisible(True)
 
     def _group_by_id(self, group_id: str | None) -> DocumentGroup | None:
         if self._current is None or not group_id:
@@ -897,11 +1119,24 @@ class ReviewView(QWidget):
         self._after_change(group_id, rebuild=False)
 
     def _accept_group(self, group_id: str) -> None:
+        """Accept one document exactly as "Approve all" accepts every document.
+
+        Three flags can hold a document in review -- its own, its packet's, and
+        the association flag -- and clearing only the first leaves the document
+        still counted, with a button that appears to do nothing. This mirrors
+        the per-document body of :meth:`approve_all` rather than inventing a
+        second, weaker meaning of "accepted".
+        """
         group = self._group_by_id(group_id)
         if group is None or self._current is None:
             return
         self._grouping.mark_reviewed(self._current, group)
-        self._after_change(group_id, rebuild=False)
+        packet = self._current.packet_for_document(group)
+        if packet is not None and not packet.is_unknown:
+            self._packets.accept_packet(self._current, packet)
+        group.association_review = False
+        self._current.refresh_status()
+        self._advance_after_resolution(group_id)
 
     # ------------------------------------------------------------------
     # Candidate packet corrections -- delegated to CandidatePacketService
@@ -1068,6 +1303,7 @@ class ReviewView(QWidget):
         if self.view_mode == _BY_TYPE:
             self._reload_board()
         self._update_summary()
+        self._update_banner()
         self.documents_changed.emit()
 
     def _refresh_sections(self) -> None:
@@ -1092,6 +1328,7 @@ class ReviewView(QWidget):
         self.review_filter_button.setText(
             "Showing review only" if enabled else "Review Needed"
         )
+        self._update_banner()
         # Jump straight to a file that has review items, rather than leaving the
         # user staring at an empty panel because the selected file was clean.
         first_with_review = next(
